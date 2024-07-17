@@ -250,6 +250,7 @@ Future<int?> lastEpisodeNumber() async {
 }
 
   Future<List<Episode>>? _episodeFuture;
+  bool _isNewestFirst = true;
 
   @override
   void initState() {
@@ -286,8 +287,8 @@ Future<int?> lastEpisodeNumber() async {
         }
         await prefs.setInt('lastEpisode', latestEpisode);
       }
-
-      return (await _getCachedEpisodes()).reversed.toList();
+      List<Episode> episodes = await _getCachedEpisodes();
+      return _isNewestFirst ? episodes.reversed.toList() : episodes;
     }
 
     return [];
@@ -317,7 +318,6 @@ Future<int?> lastEpisodeNumber() async {
     return cachedEpisodes;
   }
   
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -330,6 +330,7 @@ Future<int?> lastEpisodeNumber() async {
         backgroundColor: const Color.fromARGB(255, 7, 0, 0),
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.grey), // Set drawer icon color to gray
+
       ),
       drawer: Drawer(
         child: Container(
@@ -371,6 +372,37 @@ Future<int?> lastEpisodeNumber() async {
                     MaterialPageRoute(builder: (context) => const FavouritesPage()),
                   );
                 },
+              ),
+              const Divider(color: Colors.grey), // Add a divider for better separation
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _isNewestFirst ? 'Newest First' : 'Oldest First',
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 18.0, // Increase the font size
+                        ),
+                      ),
+                    ),
+                    Switch(
+                      value: _isNewestFirst,
+                      onChanged: (value) {
+                        setState(() {
+                          _isNewestFirst = value;
+                          _episodeFuture = _initializeEpisodes(); // Re-fetch episodes with the new sorting order
+                        });
+                      },
+                      activeColor: Colors.red,          // Color of the switch thumb when it's on
+                      activeTrackColor: Colors.red[200], // Color of the track when the switch is on
+                      inactiveThumbColor: Colors.grey,  // Color of the switch thumb when it's off
+                      inactiveTrackColor: Colors.grey[600], // Color of the track when the switch is off
+                    ),
+                  ],
+                ),
               ),
             ],
           ),
