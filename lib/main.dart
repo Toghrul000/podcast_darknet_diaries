@@ -3,11 +3,13 @@ import 'package:html/dom.dart' as html;
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as html_parser;
 import 'package:podcast_darknet_diaries/audio_player.dart';
+import 'package:podcast_darknet_diaries/episode_search_delegate.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+
 
 
 Future<void> main() async {
@@ -250,6 +252,7 @@ Future<int?> lastEpisodeNumber() async {
 }
 
   Future<List<Episode>>? _episodeFuture;
+  late List<Episode> episodes;
   bool _isNewestFirst = true;
 
   @override
@@ -287,7 +290,8 @@ Future<int?> lastEpisodeNumber() async {
         }
         await prefs.setInt('lastEpisode', latestEpisode);
       }
-      List<Episode> episodes = await _getCachedEpisodes();
+      // List<Episode> episodes = await _getCachedEpisodes();
+      episodes = await _getCachedEpisodes();
       return _isNewestFirst ? episodes.reversed.toList() : episodes;
     }
 
@@ -317,7 +321,8 @@ Future<int?> lastEpisodeNumber() async {
 
     return cachedEpisodes;
   }
-  
+
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -330,6 +335,19 @@ Future<int?> lastEpisodeNumber() async {
         backgroundColor: const Color.fromARGB(255, 7, 0, 0),
         centerTitle: true,
         iconTheme: const IconThemeData(color: Colors.grey), // Set drawer icon color to gray
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.search, color: Colors.grey),
+            onPressed: () {
+              showSearch(
+                context: context,
+                // delegate: EpisodeSearchDelegate(_getEpisodesFromFuture(_episodeFuture)),
+                delegate: EpisodeSearchDelegate(episodes),
+
+              );
+            },
+          ),
+        ],
 
       ),
       drawer: Drawer(
@@ -625,8 +643,10 @@ class EpisodeItem extends StatelessWidget {
             },
             child: CachedNetworkImage(
               imageUrl: imageUrl,
-              height: 100,
-              width: 100,
+              placeholder: (context, url) => const CircularProgressIndicator(),
+              errorWidget: (context, url, error) => const Icon(Icons.error),
+              height: 105,
+              width: 105,
               fit: BoxFit.cover,
             ),
           ),
@@ -702,6 +722,13 @@ class EpisodeItem extends StatelessWidget {
                   );
                 },
               ),
+              IconButton(
+                icon: const Icon(
+                  Icons.download,
+                  color: Colors.white,
+                ),
+                onPressed: () {},
+              ),
             ],
           ),
         ],
@@ -712,7 +739,7 @@ class EpisodeItem extends StatelessWidget {
 
 
 
-class EpisodeScreen extends StatelessWidget {
+class EpisodeScreen extends StatefulWidget {
   final String imageUrl;
   final String title;
   final String dateTime;
@@ -729,6 +756,32 @@ class EpisodeScreen extends StatelessWidget {
   });
 
   @override
+  _EpisodeScreenState createState() => _EpisodeScreenState();
+}
+
+class _EpisodeScreenState extends State<EpisodeScreen> {
+  bool isFavourite = false;
+  int? episodeNumber;
+
+  @override
+  void initState() {
+    super.initState();
+    episodeNumber = extractEpisodeNumber(widget.title);
+    if (episodeNumber != null) {
+      isFavourite = Provider.of<FavouritesProvider>(context, listen: false).favourites.contains(episodeNumber);
+    }
+  }
+
+  void toggleFavourite() {
+    if (episodeNumber != null) {
+      Provider.of<FavouritesProvider>(context, listen: false).toggleFavourite(episodeNumber!);
+      setState(() {
+        isFavourite = !isFavourite;
+      });
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.black, // Set background color to black
@@ -741,7 +794,7 @@ class EpisodeScreen extends StatelessWidget {
           },
         ),
         title: Text(
-          title,
+          widget.title,
           style: const TextStyle(color: Colors.white), // AppBar title color to white
         ),
       ),
@@ -751,41 +804,64 @@ class EpisodeScreen extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              title,
+              widget.title,
               style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
             ),
             const SizedBox(height: 8),
             Text(
-              dateTime,
+              widget.dateTime,
               style: const TextStyle(fontSize: 16, color: Colors.grey),
             ),
             const SizedBox(height: 16),
             Center(
-              child: IconButton(
-                icon: const Icon(Icons.play_arrow_rounded, size: 64, color: Colors.white), // Play button color to white
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AudioPlayerScreen(
-                        imageUrl: imageUrl,
-                        title: title,
-                        dateTime: dateTime,
-                        mp3Url: mp3Url,
-                      ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  IconButton(
+                    icon: Icon(
+                      isFavourite ? Icons.favorite : Icons.favorite_border,
+                      size: 50,
+                      color: Colors.white,
                     ),
-                  );
-                },
+                    onPressed: toggleFavourite,
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.play_arrow_rounded, size: 64, color: Colors.white), // Play button color to white
+                    onPressed: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AudioPlayerScreen(
+                            imageUrl: widget.imageUrl,
+                            title: widget.title,
+                            dateTime: widget.dateTime,
+                            mp3Url: widget.mp3Url,
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  IconButton(
+                    icon: const Icon(
+                      Icons.download,
+                      size: 50,
+                      color: Colors.white,
+                    ),
+                    onPressed: () {},
+                  ),
+                ],
               ),
             ),
             const SizedBox(height: 16),
             CachedNetworkImage(
-              imageUrl: imageUrl,
+              placeholder: (context, url) => const CircularProgressIndicator(),
+              errorWidget: (context, url, error) => const Icon(Icons.error),
+              imageUrl: widget.imageUrl,
               fit: BoxFit.cover,
             ),
             const SizedBox(height: 16),
             Text(
-              content,
+              widget.content,
               style: const TextStyle(fontSize: 18, color: Colors.white),
             ),
           ],
@@ -793,7 +869,20 @@ class EpisodeScreen extends StatelessWidget {
       ),
     );
   }
+
+  int? extractEpisodeNumber(String episodeString) {
+    RegExp regExp = RegExp(r'EP (\d+):');
+    Match? match = regExp.firstMatch(episodeString);
+    if (match != null) {
+      String episodeNumberStr = match.group(1)!;
+      int episodeNumber = int.parse(episodeNumberStr);
+      return episodeNumber;
+    } else {
+      return null;
+    }
+  }
 }
+
 
 class DownloadsPage extends StatelessWidget {
   const DownloadsPage({super.key});
