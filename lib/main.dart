@@ -3,12 +3,16 @@ import 'package:html/dom.dart' as html;
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as html_parser;
 import 'package:podcast_darknet_diaries/audio_player.dart';
+import 'package:podcast_darknet_diaries/downloads.dart';
 import 'package:podcast_darknet_diaries/episode_search_delegate.dart';
+import 'package:podcast_darknet_diaries/favourites.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'dart:io';
+import 'package:path_provider/path_provider.dart';
 
 
 
@@ -25,33 +29,6 @@ Future<void> main() async {
     ),);
 }
 
-class FavouritesProvider extends ChangeNotifier {
-  List<int> _favourites = [];
-
-  List<int> get favourites => _favourites;
-
-  Future<void> loadFavourites() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? favouritesJson = prefs.getString('favourites');
-    if (favouritesJson != null) {
-      _favourites = (jsonDecode(favouritesJson) as List<dynamic>).cast<int>();
-    } else {
-      _favourites = [];
-    }
-    notifyListeners();
-  }
-
-  Future<void> toggleFavourite(int episodeNumber) async {
-    if (_favourites.contains(episodeNumber)) {
-      _favourites.remove(episodeNumber);
-    } else {
-      _favourites.add(episodeNumber);
-    }
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setString('favourites', jsonEncode(_favourites));
-    notifyListeners();
-  }
-}
 
 class Episode {
   final String imageUrl;
@@ -261,6 +238,12 @@ Future<int?> lastEpisodeNumber() async {
     _episodeFuture = _initializeEpisodes();
   }
 
+  void reFetch() {
+    setState(() {
+      _episodeFuture = _initializeEpisodes(); 
+    });
+  }
+
   Future<List<Episode>> _initializeEpisodes() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     int? lastStoredEpisode = prefs.getInt('lastEpisode');
@@ -337,18 +320,20 @@ Future<int?> lastEpisodeNumber() async {
         iconTheme: const IconThemeData(color: Colors.grey), // Set drawer icon color to gray
         actions: [
           IconButton(
+            icon: const Icon(Icons.refresh, color: Colors.grey),
+            onPressed: reFetch,
+          ),
+          IconButton(
             icon: const Icon(Icons.search, color: Colors.grey),
             onPressed: () {
               showSearch(
                 context: context,
                 // delegate: EpisodeSearchDelegate(_getEpisodesFromFuture(_episodeFuture)),
                 delegate: EpisodeSearchDelegate(episodes),
-
               );
             },
           ),
         ],
-
       ),
       drawer: Drawer(
         child: Container(
@@ -483,123 +468,8 @@ Future<int?> lastEpisodeNumber() async {
   }
 }
 
-class FavouritesPage extends StatefulWidget {
-  const FavouritesPage({super.key});
 
-  @override
-  _FavouritesPageState createState() => _FavouritesPageState();
-}
-
-class _FavouritesPageState extends State<FavouritesPage> {
-  List<Episode> _favouriteEpisodes = [];
-
-  @override
-  void initState() {
-    super.initState();
-    _loadFavouriteEpisodes();
-  }
-
-  int? extractEpisodeNumber(String episodeString) {
-    RegExp regExp = RegExp(r'EP (\d+):');
-    Match? match = regExp.firstMatch(episodeString);
-    if (match != null) {
-      String episodeNumberStr = match.group(1)!;
-      int episodeNumber = int.parse(episodeNumberStr);
-      return episodeNumber;
-    } else {
-      return null;
-    }
-  }
-
-  Future<void> _loadFavouriteEpisodes() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? favouritesJson = prefs.getString('favourites');
-    if (favouritesJson != null) {
-      List<int> favouriteEpisodeNumbers = (jsonDecode(favouritesJson) as List<dynamic>).cast<int>();
-      List<Episode> allEpisodes = await _getCachedEpisodes();
-
-      setState(() {
-        _favouriteEpisodes = allEpisodes
-            .where((episode) => favouriteEpisodeNumbers.contains(extractEpisodeNumber(episode.title) ?? -1))
-            .toList();
-      });
-    }
-  }
-
-  Future<List<Episode>> _getCachedEpisodes() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    List<Episode> cachedEpisodes = [];
-
-    int? lastStoredEpisode = prefs.getInt('lastEpisode');
-    if (lastStoredEpisode != null) {
-      for (int i = 1; i <= lastStoredEpisode; i++) {
-        String? episodeJson = prefs.getString('episode_$i');
-        if (episodeJson != null) {
-          Episode episode = Episode.fromJson(jsonDecode(episodeJson));
-          cachedEpisodes.add(episode);
-        }
-      }
-    }
-
-    return cachedEpisodes;
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: const Text('Favourites', style: TextStyle(color: Colors.red)),
-        backgroundColor: const Color.fromARGB(255, 20, 0, 0),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.home),
-            onPressed: () {
-              Navigator.of(context).pop(); // Return to the home page
-            },
-          ),
-        ],
-      ),
-      body: _favouriteEpisodes.isEmpty
-          ? const Center(
-              child: Text(
-                'No favourite episodes.',
-                style: TextStyle(color: Colors.white),
-              ),
-            )
-          : Consumer<FavouritesProvider>(
-              builder: (context, favouritesProvider, child) {
-                return ListView.builder(
-                  itemCount: _favouriteEpisodes.length,
-                  itemBuilder: (context, index) {
-                    Episode episode = _favouriteEpisodes[index];
-                    int? episodeNumber = extractEpisodeNumber(episode.title);
-                    return EpisodeItem(
-                      imageUrl: episode.imageUrl,
-                      title: episode.title,
-                      dateTime: episode.dateTime,
-                      content: episode.content,
-                      mp3Url: episode.mp3Url,
-                      isFavourite: episodeNumber != null && favouritesProvider.favourites.contains(episodeNumber),
-                      onFavouriteToggle: () {
-                        if (episodeNumber != null) {
-                          favouritesProvider.toggleFavourite(episodeNumber);
-                          setState(() {
-                            _favouriteEpisodes.removeAt(index);
-                          });
-                        }
-                      },
-                    );
-                  },
-                );
-              },
-            ),
-    );
-  }
-}
-
-
-class EpisodeItem extends StatelessWidget {
+class EpisodeItem extends StatefulWidget {
   final String imageUrl;
   final String title;
   final String dateTime;
@@ -620,6 +490,108 @@ class EpisodeItem extends StatelessWidget {
   });
 
   @override
+  State<EpisodeItem> createState() => _EpisodeItemState();
+}
+
+class _EpisodeItemState extends State<EpisodeItem> {
+  double _downloadProgress = 0.0;
+  bool _isDownloading = false;
+
+
+  int? extractEpisodeNumber(String episodeString) {
+    RegExp regExp = RegExp(r'EP (\d+):');
+    Match? match = regExp.firstMatch(episodeString);
+    if (match != null) {
+      String episodeNumberStr = match.group(1)!;
+      int episodeNumber = int.parse(episodeNumberStr);
+      return episodeNumber;
+    } else {
+      return null;
+    }
+  }
+
+
+  Future<void> _downloadEpisode() async {
+    int? episodeNumber = extractEpisodeNumber(widget.title);
+    if (episodeNumber != null){
+      setState(() {
+        _isDownloading = true;
+      });
+
+      await saveEpisodeMetadata(episodeNumber.toString(), widget.title, widget.dateTime, widget.imageUrl, widget.mp3Url);
+      await _saveEpisodeFilesWithProgress(episodeNumber, widget.imageUrl, widget.mp3Url, (progress) {
+        setState(() {
+          _downloadProgress = progress;
+        });
+      });
+
+      setState(() {
+        _isDownloading = false;
+        _downloadProgress = 0.0;
+      });
+
+    }
+
+  }
+
+  Future<void> _saveEpisodeFilesWithProgress(int episodeNumber, String imageUrl, String audioUrl, Function(double) onProgress) async {
+    final directory = await getApplicationDocumentsDirectory();
+
+    // Create directories if they don't exist
+    final imgDir = Directory('${directory.path}/assets/img');
+    if (!await imgDir.exists()) {
+      await imgDir.create(recursive: true);
+    }
+
+    final audioDir = Directory('${directory.path}/assets/audio');
+    if (!await audioDir.exists()) {
+      await audioDir.create(recursive: true);
+    }
+
+    // Save image with progress
+    final imagePath = '${directory.path}/assets/img/episode_$episodeNumber.jpg';
+    final imageFile = File(imagePath);
+    await _downloadFileWithProgress(imageUrl, imageFile, onProgress);
+
+    // Save audio with progress
+    final audioPath = '${directory.path}/assets/audio/episode_$episodeNumber.mp3';
+    final audioFile = File(audioPath);
+    await _downloadFileWithProgress(audioUrl, audioFile, onProgress);
+  }
+
+  Future<void> _downloadFileWithProgress(String url, File file, Function(double) onProgress) async {
+    final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
+    final contentLength = response.contentLength;
+    int bytesReceived = 0;
+
+    final fileSink = file.openWrite();
+
+    await response.stream.map((chunk) {
+      bytesReceived += chunk.length;
+      onProgress(bytesReceived / contentLength!);
+      return chunk;
+    }).pipe(fileSink);
+
+    await fileSink.flush();
+    await fileSink.close();
+  }
+
+  Future<void> saveEpisodeMetadata(String episodeNumber, String title, String dateTime, String imagePath, String audioPath) async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    prefs.setString('offline_ep_${episodeNumber}_title', title);
+    prefs.setString('offline_ep_${episodeNumber}_dateTime', dateTime);
+    prefs.setString('offline_ep_${episodeNumber}_imagePath', imagePath);
+    prefs.setString('offline_ep_${episodeNumber}_audioPath', audioPath);
+    
+    List<String> downloads = prefs.getStringList('downloads') ?? [];
+    if (!downloads.contains(episodeNumber)) {
+      downloads.add(episodeNumber);
+      prefs.setStringList('downloads', downloads);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(8.0),
@@ -632,17 +604,17 @@ class EpisodeItem extends StatelessWidget {
                 context,
                 MaterialPageRoute(
                   builder: (context) => EpisodeScreen(
-                    imageUrl: imageUrl,
-                    title: title,
-                    dateTime: dateTime,
-                    content: content,
-                    mp3Url: mp3Url,
+                    imageUrl: widget.imageUrl,
+                    title: widget.title,
+                    dateTime: widget.dateTime,
+                    content: widget.content,
+                    mp3Url: widget.mp3Url,
                   ),
                 ),
               );
             },
             child: CachedNetworkImage(
-              imageUrl: imageUrl,
+              imageUrl: widget.imageUrl,
               placeholder: (context, url) => const CircularProgressIndicator(),
               errorWidget: (context, url, error) => const Icon(Icons.error),
               height: 105,
@@ -658,11 +630,11 @@ class EpisodeItem extends StatelessWidget {
                   context,
                   MaterialPageRoute(
                     builder: (context) => EpisodeScreen(
-                      imageUrl: imageUrl,
-                      title: title,
-                      dateTime: dateTime,
-                      content: content,
-                      mp3Url: mp3Url,
+                      imageUrl: widget.imageUrl,
+                      title: widget.title,
+                      dateTime: widget.dateTime,
+                      content: widget.content,
+                      mp3Url: widget.mp3Url,
                     ),
                   ),
                 );
@@ -671,7 +643,7 @@ class EpisodeItem extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    title,
+                    widget.title,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -680,12 +652,12 @@ class EpisodeItem extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    dateTime,
+                    widget.dateTime,
                     style: const TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    content,
+                    widget.content,
                     style: const TextStyle(fontSize: 16, color: Colors.white),
                     overflow: TextOverflow.ellipsis,
                     maxLines: 2,
@@ -698,10 +670,10 @@ class EpisodeItem extends StatelessWidget {
             children: [
               IconButton(
                 icon: Icon(
-                  isFavourite ? Icons.favorite : Icons.favorite_border,
+                  widget.isFavourite ? Icons.favorite : Icons.favorite_border,
                   color: Colors.white,
                 ),
-                onPressed: onFavouriteToggle,
+                onPressed: widget.onFavouriteToggle,
               ),
               IconButton(
                 icon: const Icon(
@@ -713,22 +685,36 @@ class EpisodeItem extends StatelessWidget {
                     context,
                     MaterialPageRoute(
                       builder: (context) => AudioPlayerScreen(
-                        imageUrl: imageUrl,
-                        title: title,
-                        dateTime: dateTime,
-                        mp3Url: mp3Url,
+                        imageUrl: widget.imageUrl,
+                        title: widget.title,
+                        dateTime: widget.dateTime,
+                        mp3Url: widget.mp3Url,
                       ),
                     ),
                   );
                 },
               ),
-              IconButton(
-                icon: const Icon(
-                  Icons.download,
-                  color: Colors.white,
-                ),
-                onPressed: () {},
-              ),
+              _isDownloading
+              ? Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    CircularProgressIndicator(value: _downloadProgress, color: Colors.red,),
+                    Positioned(
+                      child: Text(
+                        '${(_downloadProgress * 100).toStringAsFixed(0)}%',
+                        style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+          : IconButton(
+              icon: const Icon(Icons.download, color: Colors.white,),
+              onPressed: _downloadEpisode,
+            ),
             ],
           ),
         ],
@@ -883,29 +869,3 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
   }
 }
 
-
-class DownloadsPage extends StatelessWidget {
-  const DownloadsPage({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color.fromARGB(255, 4, 0, 0),
-      appBar: AppBar(
-        title: const Text('Downloads', style: TextStyle(color: Colors.red)),
-        backgroundColor: const Color.fromARGB(255, 20, 0, 0),
-        actions: [
-          IconButton(
-            icon: const Icon(Icons.home),
-            onPressed: () {
-              Navigator.of(context).pop(); // Return to the home page
-            },
-          ),
-        ],
-      ),
-      body: const Center(
-        child: Text('Downloads Page Content'),
-      ),
-    );
-  }
-}
