@@ -81,95 +81,102 @@ class Home extends StatefulWidget {
 }
 
 class _HomeState extends State<Home> {
+  String? _errorMessage; // State variable to hold the error message
 
   String? extractMp3Link(String scriptContent) {
-  RegExp regExp = RegExp(r'"mp3":\s*"([^"]+)"');
-  Match? match = regExp.firstMatch(scriptContent);
-  if (match != null) {
-    return match.group(1);
-  } else {
-    return null;
+    RegExp regExp = RegExp(r'"mp3":\s*"([^"]+)"');
+    Match? match = regExp.firstMatch(scriptContent);
+    if (match != null) {
+      return match.group(1);
+    } else {
+      return null;
+    }
   }
-}
 
-
-Future<html.Document?> fetchEpisodeDetails(String url) async {
-  var response = await http.get(Uri.parse(url));
-  if (response.statusCode == 200) {
-    var document = html_parser.parse(response.body);
-    return document;
-  } else {
-    print('Request failed with status: ${response.statusCode}.');
-    return null;
+  Future<html.Document?> fetchEpisodeDetails(String url) async {
+    try {
+      var response = await http.get(Uri.parse(url));
+      if (response.statusCode == 200) {
+        var document = html_parser.parse(response.body);
+        return document;
+      } else {
+        setState(() {
+          _errorMessage = 'Request failed with status: ${response.statusCode}.';
+        });
+        return null;
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to fetch episode details: $e';
+      });
+      return null;
+    }
   }
-}
 
-
-
-String? getTitle(html.Document document) {
-  var heroSection = document.querySelector('.hero.hero--single');
-  if (heroSection != null) {
+  String? getTitle(html.Document document) {
+    var heroSection = document.querySelector('.hero.hero--single');
+    if (heroSection != null) {
       var episodeTitleElement = heroSection.querySelector('h1');
       var episodeTitle = episodeTitleElement?.text ?? 'N/A';
       return episodeTitle;
-  } else {
-    return null;
+    } else {
+      return null;
+    }
   }
-}
 
-String? getDateTime(html.Document document) {
-  var heroSection = document.querySelector('.hero.hero--single');
-  if (heroSection != null) {
+  String? getDateTime(html.Document document) {
+    var heroSection = document.querySelector('.hero.hero--single');
+    if (heroSection != null) {
       var episodeDateElement = heroSection.querySelector('p');
-      var episodeDateAndDuration = episodeDateElement?.text.split('|').map((e) => e.trim()).toList() ?? [];
-      var episodeDate = episodeDateAndDuration.isNotEmpty ? episodeDateAndDuration[0] : 'N/A';
-      var episodeDuration = episodeDateAndDuration.length > 1 ? episodeDateAndDuration[1] : 'N/A';
+      var episodeDateAndDuration =
+          episodeDateElement?.text.split('|').map((e) => e.trim()).toList() ?? [];
+      var episodeDate = episodeDateAndDuration.isNotEmpty
+          ? episodeDateAndDuration[0]
+          : 'N/A';
+      var episodeDuration = episodeDateAndDuration.length > 1
+          ? episodeDateAndDuration[1]
+          : 'N/A';
       return "$episodeDate $episodeDuration";
-  } else {
-    return null;
+    } else {
+      return null;
+    }
   }
 
-}
-
-
-String? getBackgroundImageUrl(html.Document document) {
-  var heroSection = document.querySelector('.hero.hero--single');
-  if (heroSection != null) {
+  String? getBackgroundImageUrl(html.Document document) {
+    var heroSection = document.querySelector('.hero.hero--single');
+    if (heroSection != null) {
       var backgroundImageElement = heroSection.querySelector('.hero__image');
-      var backgroundImageUrl = 'https://darknetdiaries.com${backgroundImageElement?.attributes['style']?.split('url(')[1].split(')')[0] ?? 'N/A'}';
+      var backgroundImageUrl =
+          'https://darknetdiaries.com${backgroundImageElement?.attributes['style']?.split('url(')[1].split(')')[0] ?? 'N/A'}';
       return backgroundImageUrl;
-  } else {
-    return null;
+    } else {
+      return null;
+    }
   }
-}
 
-
-String? getMp3Url(html.Document document){
-  var mainContent = document.querySelector('.single-post');
-  if (mainContent != null){
-    var scriptElements = mainContent.querySelectorAll('script');
-    for (var script in scriptElements) {
-      if (script.text.contains('window.playerConfiguration')) {
-        // Extract and print the mp3 link from the script content
-        String? mp3Link = extractMp3Link(script.text);
-        if (mp3Link != null) {
-          return mp3Link;
-        } else {
-          print("Mp3 regex failed");
-          return null;
+  String? getMp3Url(html.Document document) {
+    var mainContent = document.querySelector('.single-post');
+    if (mainContent != null) {
+      var scriptElements = mainContent.querySelectorAll('script');
+      for (var script in scriptElements) {
+        if (script.text.contains('window.playerConfiguration')) {
+          // Extract and print the mp3 link from the script content
+          String? mp3Link = extractMp3Link(script.text);
+          if (mp3Link != null) {
+            return mp3Link;
+          } else {
+            return null;
+          }
         }
       }
+    } else {
+      return null;
     }
-  } else {
-    print("Main content no single-post item");
     return null;
   }
-  return null;
-}
 
-
-String? getEpisodeContent(html.Document document) {
-  var mainContent = document.querySelector('.single-post');
+  String? getEpisodeContent(html.Document document) {
+    var mainContent = document.querySelector('.single-post');
     if (mainContent != null) {
       // Find and exclude the specific script sections
       var scriptElements = mainContent.querySelectorAll('script');
@@ -194,39 +201,48 @@ String? getEpisodeContent(html.Document document) {
     } else {
       return 'Main content not found.';
     }
-}
-
-int? extractEpisodeNumber(String episodeString) {
-  RegExp regExp = RegExp(r'EP (\d+):');
-  Match? match = regExp.firstMatch(episodeString);
-  if (match != null) {
-    String episodeNumberStr = match.group(1)!;
-    int episodeNumber = int.parse(episodeNumberStr);
-    return episodeNumber;
-  } else {
-    return null;
   }
-}
 
-Future<int?> lastEpisodeNumber() async {
-  // Define the URL for the request
-  var url = Uri.parse('https://darknetdiaries.com/episode/');
-  var response = await http.get(url);
-  if (response.statusCode == 200) {
-    var document = html_parser.parse(response.body);
-    var episodeTitles = document.querySelectorAll('.post__title');
-    if (episodeTitles.isNotEmpty) {
-      return extractEpisodeNumber(episodeTitles[0].text);
+  int? extractEpisodeNumber(String episodeString) {
+    RegExp regExp = RegExp(r'EP (\d+):');
+    Match? match = regExp.firstMatch(episodeString);
+    if (match != null) {
+      String episodeNumberStr = match.group(1)!;
+      int episodeNumber = int.parse(episodeNumberStr);
+      return episodeNumber;
     } else {
-      print('No episode titles found.');
       return null;
     }
-  } else {
-    // Print the error message
-    print('Request failed with status: ${response.statusCode}.');
-    return null;
   }
-}
+
+  Future<int?> lastEpisodeNumber() async {
+    try {
+      var url = Uri.parse('https://darknetdiaries.com/episode/');
+      var response = await http.get(url);
+      if (response.statusCode == 200) {
+        var document = html_parser.parse(response.body);
+        var episodeTitles = document.querySelectorAll('.post__title');
+        if (episodeTitles.isNotEmpty) {
+          return extractEpisodeNumber(episodeTitles[0].text);
+        } else {
+          setState(() {
+            _errorMessage = 'No episode titles found.';
+          });
+          return null;
+        }
+      } else {
+        setState(() {
+          _errorMessage = 'Request failed with status: ${response.statusCode}.';
+        });
+        return null;
+      }
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to fetch episodes';
+      });
+      return null;
+    }
+  }
 
   Future<List<Episode>>? _episodeFuture;
   late List<Episode> episodes;
@@ -240,45 +256,54 @@ Future<int?> lastEpisodeNumber() async {
 
   void reFetch() {
     setState(() {
-      _episodeFuture = _initializeEpisodes(); 
+      Provider.of<FavouritesProvider>(context, listen: false).setErrorMessage(null);
+      _errorMessage = null; // Reset the error message
+      _episodeFuture = _initializeEpisodes();
     });
   }
 
   Future<List<Episode>> _initializeEpisodes() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    int? lastStoredEpisode = prefs.getInt('lastEpisode');
-    int? latestEpisode = await lastEpisodeNumber();
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      int? lastStoredEpisode = prefs.getInt('lastEpisode');
+      int? latestEpisode = await lastEpisodeNumber();
 
-    if (latestEpisode != null) {
-      if (lastStoredEpisode == null || lastStoredEpisode < latestEpisode) {
-        for (int i = latestEpisode; i > (lastStoredEpisode ?? 0); i--) {
-          String episodeUrl = 'https://darknetdiaries.com/episode/$i/';
-          html.Document? document = await fetchEpisodeDetails(episodeUrl);
-          if (document != null) {
-            String mp3Url = getMp3Url(document) ?? '';
-            String imageUrl = getBackgroundImageUrl(document) ?? '';
-            String title = getTitle(document) ?? '';
-            String dateTime = getDateTime(document) ?? '';
-            String content = getEpisodeContent(document) ?? '';
-            Episode episode = Episode(
-              imageUrl: imageUrl,
-              title: title,
-              dateTime: dateTime,
-              content: content,
-              mp3Url: mp3Url,
-            );
+      if (latestEpisode != null) {
+        if (lastStoredEpisode == null || lastStoredEpisode < latestEpisode) {
+          for (int i = latestEpisode; i > (lastStoredEpisode ?? 0); i--) {
+            String episodeUrl = 'https://darknetdiaries.com/episode/$i/';
+            html.Document? document = await fetchEpisodeDetails(episodeUrl);
+            if (document != null) {
+              String mp3Url = getMp3Url(document) ?? '';
+              String imageUrl = getBackgroundImageUrl(document) ?? '';
+              String title = getTitle(document) ?? '';
+              String dateTime = getDateTime(document) ?? '';
+              String content = getEpisodeContent(document) ?? '';
+              Episode episode = Episode(
+                imageUrl: imageUrl,
+                title: title,
+                dateTime: dateTime,
+                content: content,
+                mp3Url: mp3Url,
+              );
 
-            await _cacheEpisode(i, episode);
+              await _cacheEpisode(i, episode);
+            }
           }
+          await prefs.setInt('lastEpisode', latestEpisode);
         }
-        await prefs.setInt('lastEpisode', latestEpisode);
+        // List<Episode> episodes = await _getCachedEpisodes();
+        episodes = await _getCachedEpisodes();
+        return _isNewestFirst ? episodes.reversed.toList() : episodes;
       }
-      // List<Episode> episodes = await _getCachedEpisodes();
-      episodes = await _getCachedEpisodes();
-      return _isNewestFirst ? episodes.reversed.toList() : episodes;
-    }
 
-    return [];
+      return [];
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to initialize episodes';
+      });
+      return [];
+    }
   }
 
   Future<void> _cacheEpisode(int episodeNumber, Episode episode) async {
@@ -305,7 +330,6 @@ Future<int?> lastEpisodeNumber() async {
     return cachedEpisodes;
   }
 
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -328,7 +352,6 @@ Future<int?> lastEpisodeNumber() async {
             onPressed: () {
               showSearch(
                 context: context,
-                // delegate: EpisodeSearchDelegate(_getEpisodesFromFuture(_episodeFuture)),
                 delegate: EpisodeSearchDelegate(episodes),
               );
             },
@@ -337,7 +360,7 @@ Future<int?> lastEpisodeNumber() async {
       ),
       drawer: Drawer(
         child: Container(
-          color: const Color.fromARGB(255, 0, 0, 0), // Set your desired background color here
+          color: const Color.fromARGB(255, 0, 0, 0), 
           child: ListView(
             padding: EdgeInsets.zero,
             children: <Widget>[
@@ -351,10 +374,10 @@ Future<int?> lastEpisodeNumber() async {
                 child: SizedBox(),
               ),
               ListTile(
-                leading: const Icon(Icons.download, color: Colors.white), // Change icon color if needed
+                leading: const Icon(Icons.download, color: Colors.white), 
                 title: const Text(
                   'Downloads',
-                  style: TextStyle(color: Colors.white), // Change text color if needed
+                  style: TextStyle(color: Colors.white), 
                 ),
                 onTap: () {
                   Navigator.push(
@@ -364,10 +387,10 @@ Future<int?> lastEpisodeNumber() async {
                 },
               ),
               ListTile(
-                leading: const Icon(Icons.favorite, color: Colors.white), // Change icon color if needed
+                leading: const Icon(Icons.favorite, color: Colors.white), 
                 title: const Text(
                   'Favourites',
-                  style: TextStyle(color: Colors.white), // Change text color if needed
+                  style: TextStyle(color: Colors.white), 
                 ),
                 onTap: () {
                   Navigator.push(
@@ -399,9 +422,9 @@ Future<int?> lastEpisodeNumber() async {
                           _episodeFuture = _initializeEpisodes(); // Re-fetch episodes with the new sorting order
                         });
                       },
-                      activeColor: Colors.red,          // Color of the switch thumb when it's on
+                      activeColor: Colors.red, // Color of the switch thumb when it's on
                       activeTrackColor: Colors.red[200], // Color of the track when the switch is on
-                      inactiveThumbColor: Colors.grey,  // Color of the switch thumb when it's off
+                      inactiveThumbColor: Colors.grey, // Color of the switch thumb when it's off
                       inactiveTrackColor: Colors.grey[600], // Color of the track when the switch is off
                     ),
                   ],
@@ -416,12 +439,13 @@ Future<int?> lastEpisodeNumber() async {
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
             return const Center(
-              child: CircularProgressIndicator(),
+              child: CircularProgressIndicator(color: Colors.red,),
             );
-          } else if (snapshot.hasError) {
+          } else if (snapshot.hasError || _errorMessage != null) {
+            Provider.of<FavouritesProvider>(context, listen: false).setErrorMessage('${_errorMessage ?? snapshot.error}');
             return Center(
               child: Text(
-                'Error: ${snapshot.error}',
+                'Error: ${_errorMessage ?? snapshot.error}',
                 style: const TextStyle(color: Colors.red),
               ),
             );
@@ -442,7 +466,8 @@ Future<int?> lastEpisodeNumber() async {
                     Episode episode = episodes[index];
 
                     int? episodeNumber = extractEpisodeNumber(episode.title);
-                    bool isFavourite = episodeNumber != null && favouritesProvider.favourites.contains(episodeNumber);
+                    bool isFavourite = episodeNumber != null &&
+                        favouritesProvider.favourites.contains(episodeNumber);
 
                     return EpisodeItem(
                       imageUrl: episode.imageUrl,
@@ -467,6 +492,7 @@ Future<int?> lastEpisodeNumber() async {
     );
   }
 }
+
 
 
 class EpisodeItem extends StatefulWidget {
@@ -496,6 +522,8 @@ class EpisodeItem extends StatefulWidget {
 class _EpisodeItemState extends State<EpisodeItem> {
   double _downloadProgress = 0.0;
   bool _isDownloading = false;
+  String? _imagePath;
+  String? _audioPath;
 
 
   int? extractEpisodeNumber(String episodeString) {
@@ -514,24 +542,42 @@ class _EpisodeItemState extends State<EpisodeItem> {
   Future<void> _downloadEpisode() async {
     int? episodeNumber = extractEpisodeNumber(widget.title);
     if (episodeNumber != null){
-      setState(() {
-        _isDownloading = true;
-      });
-
-      await saveEpisodeMetadata(episodeNumber.toString(), widget.title, widget.dateTime, widget.imageUrl, widget.mp3Url);
-      await _saveEpisodeFilesWithProgress(episodeNumber, widget.imageUrl, widget.mp3Url, (progress) {
+      final prefs = await SharedPreferences.getInstance();
+      List<String> downloads = prefs.getStringList('downloads') ?? [];
+      if (!downloads.contains(episodeNumber.toString())) {
         setState(() {
-          _downloadProgress = progress;
+          _isDownloading = true;
         });
-      });
 
-      setState(() {
-        _isDownloading = false;
-        _downloadProgress = 0.0;
-      });
+        await _saveEpisodeFilesWithProgress(episodeNumber, widget.imageUrl, widget.mp3Url, (progress) {
+          setState(() {
+            _downloadProgress = progress;
+          });
+        });
 
+        if (_imagePath != null && _audioPath != null) {
+          await saveEpisodeMetadata(episodeNumber.toString(), widget.title, widget.dateTime, _imagePath!, _audioPath!);
+        }
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Already in Downloads!'),
+              duration: const Duration(seconds: 5),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10.0),
+              ),
+            ),
+          );
+        }
+      }
     }
-
   }
 
   Future<void> _saveEpisodeFilesWithProgress(int episodeNumber, String imageUrl, String audioUrl, Function(double) onProgress) async {
@@ -551,13 +597,29 @@ class _EpisodeItemState extends State<EpisodeItem> {
     // Save image with progress
     final imagePath = '${directory.path}/assets/img/episode_$episodeNumber.jpg';
     final imageFile = File(imagePath);
-    await _downloadFileWithProgress(imageUrl, imageFile, onProgress);
+    await _downloadFile(imageUrl, imageFile);
 
     // Save audio with progress
     final audioPath = '${directory.path}/assets/audio/episode_$episodeNumber.mp3';
     final audioFile = File(audioPath);
     await _downloadFileWithProgress(audioUrl, audioFile, onProgress);
+
+    setState(() {
+      _imagePath = imagePath;
+      _audioPath = audioPath;
+    });
   }
+
+    Future<void> _downloadFile(String url, File file) async {
+      final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
+      final fileSink = file.openWrite();
+
+      await response.stream.pipe(fileSink);
+
+      await fileSink.flush();
+      await fileSink.close();
+    }
+
 
   Future<void> _downloadFileWithProgress(String url, File file, Function(double) onProgress) async {
     final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
@@ -615,7 +677,7 @@ class _EpisodeItemState extends State<EpisodeItem> {
             },
             child: CachedNetworkImage(
               imageUrl: widget.imageUrl,
-              placeholder: (context, url) => const CircularProgressIndicator(),
+              placeholder: (context, url) => const CircularProgressIndicator(color: Colors.red,),
               errorWidget: (context, url, error) => const Icon(Icons.error),
               height: 105,
               width: 105,
@@ -840,7 +902,7 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
             ),
             const SizedBox(height: 16),
             CachedNetworkImage(
-              placeholder: (context, url) => const CircularProgressIndicator(),
+              placeholder: (context, url) => const CircularProgressIndicator(color: Colors.red,),
               errorWidget: (context, url, error) => const Icon(Icons.error),
               imageUrl: widget.imageUrl,
               fit: BoxFit.cover,

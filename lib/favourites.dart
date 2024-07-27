@@ -8,16 +8,27 @@ import 'package:flutter/material.dart';
 
 class FavouritesProvider extends ChangeNotifier {
   List<int> _favourites = [];
+  String? _errorMessage;
 
   List<int> get favourites => _favourites;
+  String? get errorMessage => _errorMessage;
+
+  void setErrorMessage(String? message) {
+    _errorMessage = message;
+  }
 
   Future<void> loadFavourites() async {
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    String? favouritesJson = prefs.getString('favourites');
-    if (favouritesJson != null) {
-      _favourites = (jsonDecode(favouritesJson) as List<dynamic>).cast<int>();
-    } else {
-      _favourites = [];
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      String? favouritesJson = prefs.getString('favourites');
+      if (favouritesJson != null) {
+        _favourites = (jsonDecode(favouritesJson) as List<dynamic>).cast<int>();
+      } else {
+        _favourites = [];
+      }
+      _errorMessage = null; // Reset the error message on success
+    } catch (e) {
+      _errorMessage = 'Failed to load favourites';
     }
     notifyListeners();
   }
@@ -28,11 +39,17 @@ class FavouritesProvider extends ChangeNotifier {
     } else {
       _favourites.add(episodeNumber);
     }
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    await prefs.setString('favourites', jsonEncode(_favourites));
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      await prefs.setString('favourites', jsonEncode(_favourites));
+      _errorMessage = null; // Reset the error message on success
+    } catch (e) {
+      _errorMessage = 'Failed to update favourites';
+    }
     notifyListeners();
   }
 }
+
 
 class FavouritesPage extends StatefulWidget {
   const FavouritesPage({super.key});
@@ -120,6 +137,14 @@ class _FavouritesPageState extends State<FavouritesPage> {
             )
           : Consumer<FavouritesProvider>(
               builder: (context, favouritesProvider, child) {
+                if (favouritesProvider.errorMessage != null) {
+                  return Center(
+                    child: Text(
+                      'Error: ${favouritesProvider.errorMessage}',
+                      style: const TextStyle(color: Colors.red),
+                    ),
+                  );
+                }
                 return ListView.builder(
                   itemCount: _favouriteEpisodes.length,
                   itemBuilder: (context, index) {

@@ -1,8 +1,9 @@
+import 'dart:io';
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
+import 'package:podcast_darknet_diaries/image_item.dart';
 import 'package:rxdart/rxdart.dart';
 
 
@@ -79,14 +80,27 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
   }
 
   Future<void> _init() async{
-    final audioSource = AudioSource.uri(
-      Uri.parse(widget.mp3Url),
-      tag: MediaItem(
-        id: '${extractEpisodeNumber(widget.title)}', 
-        title: widget.title,
-        artUri: Uri.parse(widget.imageUrl)
+    final UriAudioSource audioSource;
+    if(File(widget.mp3Url).existsSync() && File(widget.imageUrl).existsSync()){
+      audioSource = AudioSource.uri(
+        Uri.file(widget.mp3Url),
+        tag: MediaItem(
+          id: '${extractEpisodeNumber(widget.title)}', 
+          title: widget.title,
+          artUri: Uri.file(widget.imageUrl)
         )
-    );
+      );
+    } else {
+      audioSource = AudioSource.uri(
+        Uri.parse(widget.mp3Url),
+        tag: MediaItem(
+          id: '${extractEpisodeNumber(widget.title)}', 
+          title: widget.title,
+          artUri: Uri.parse(widget.imageUrl)
+          )
+      );
+    }
+
     await _audioPlayer.setAudioSource(audioSource);
   }
 
@@ -110,17 +124,6 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
               Navigator.of(context).pop(); // Return to the home page
             },
           ),
-        
-        // IconButton(
-        //   onPressed: () {},
-        //   icon: const Icon(Icons.keyboard_arrow_down_rounded),
-        // ),
-        // actions: [
-        //   IconButton(
-        //     onPressed: () {}, 
-        //     icon: const Icon(Icons.more_horiz)
-        //     )
-        // ],
       ),
       body: Container(
         padding: const EdgeInsets.all(20),
@@ -158,11 +161,10 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                       ),
                       child: ClipRRect(
                         borderRadius: BorderRadius.circular(10),
-                        child: CachedNetworkImage(
-                          imageUrl: widget.imageUrl,
+                        child: ImageItem(
+                          imageLink: widget.imageUrl,
                           height: 300,
                           width: 300,
-                          fit: BoxFit.cover,
                         ),
                       ),
                     ),

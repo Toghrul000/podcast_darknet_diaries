@@ -1,10 +1,8 @@
 import 'package:podcast_darknet_diaries/audio_player.dart';
+import 'package:podcast_darknet_diaries/image_item.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'dart:io';
-
-
 
 class DownloadsEpisodeItem extends StatelessWidget {
   final String episodeNumber;
@@ -12,6 +10,7 @@ class DownloadsEpisodeItem extends StatelessWidget {
   final String dateTime;
   final String imagePath;
   final String audioPath;
+  final VoidCallback onDelete;
 
   const DownloadsEpisodeItem({
     required this.episodeNumber,
@@ -19,8 +18,23 @@ class DownloadsEpisodeItem extends StatelessWidget {
     required this.dateTime,
     required this.imagePath,
     required this.audioPath,
+    required this.onDelete,
     super.key,
   });
+
+  void _navigateToAudioPlayer(BuildContext context) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => AudioPlayerScreen(
+          imageUrl: imagePath,
+          title: title,
+          dateTime: dateTime,
+          mp3Url: audioPath,
+        ),
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -29,17 +43,19 @@ class DownloadsEpisodeItem extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-            CachedNetworkImage(
-              imageUrl: imagePath,
-              placeholder: (context, url) => const CircularProgressIndicator(),
-              errorWidget: (context, url, error) => const Icon(Icons.error),
+          GestureDetector(
+            onTap: () => _navigateToAudioPlayer(context),
+            child: ImageItem(
+              imageLink: imagePath,
               height: 80,
               width: 80,
-              fit: BoxFit.cover,
             ),
+          ),
           const SizedBox(width: 16),
           Expanded(
-            child: Column(
+            child: GestureDetector(
+              onTap: () => _navigateToAudioPlayer(context),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
@@ -57,6 +73,7 @@ class DownloadsEpisodeItem extends StatelessWidget {
                   ),
                 ],
               ),
+            ),
           ),
           Column(
             children: [
@@ -64,20 +81,9 @@ class DownloadsEpisodeItem extends StatelessWidget {
                 icon: const Icon(
                   Icons.play_arrow_rounded,
                   color: Colors.white,
+                  size: 30,
                 ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AudioPlayerScreen(
-                        imageUrl: imagePath,
-                        title: title,
-                        dateTime: dateTime,
-                        mp3Url: audioPath,
-                      ),
-                    ),
-                  );
-                },
+                onPressed: () => _navigateToAudioPlayer(context),
               ),
               IconButton(
                 icon: const Icon(Icons.delete),
@@ -97,6 +103,9 @@ class DownloadsEpisodeItem extends StatelessWidget {
                   // Delete files
                   File(imagePath).delete();
                   File(audioPath).delete();
+
+                  // Notify parent to update the UI
+                  onDelete();
                 },
               ),
             ],
@@ -151,6 +160,10 @@ class _DownloadsPageState extends State<DownloadsPage> {
     });
   }
 
+  void handleDelete() {
+    fetchDownloadedEpisodes();
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -167,26 +180,27 @@ class _DownloadsPageState extends State<DownloadsPage> {
           ),
         ],
       ),
-      body: downloadedEpisodes.isEmpty ? const Center(
+      body: downloadedEpisodes.isEmpty
+          ? const Center(
               child: Text(
                 'No downloaded episodes',
                 style: TextStyle(color: Colors.white),
               ),
             )
           : ListView.builder(
-            itemCount: downloadedEpisodes.length,
-            itemBuilder: (context, index) {
-              var episode = downloadedEpisodes[index];
-              return DownloadsEpisodeItem(
-                episodeNumber: episode['episodeNumber'],
-                title: episode['title'],
-                dateTime: episode['dateTime'],
-                imagePath: episode['imagePath'],
-                audioPath: episode['audioPath'],
-              );
-            },
-          ),
-          
+              itemCount: downloadedEpisodes.length,
+              itemBuilder: (context, index) {
+                var episode = downloadedEpisodes[index];
+                return DownloadsEpisodeItem(
+                  episodeNumber: episode['episodeNumber'],
+                  title: episode['title'],
+                  dateTime: episode['dateTime'],
+                  imagePath: episode['imagePath'],
+                  audioPath: episode['audioPath'],
+                  onDelete: handleDelete,
+                );
+              },
+            ),
     );
   }
 }
