@@ -12,16 +12,26 @@ class EpisodeSearchDelegate extends SearchDelegate<Episode?> {
     return ThemeData(
       appBarTheme: const AppBarTheme(
         backgroundColor: Colors.black,
-        iconTheme: IconThemeData(color: Colors.white),
+        iconTheme: IconThemeData(color: Colors.grey),
       ),
       textTheme: const TextTheme(
         titleLarge: TextStyle(color: Colors.white), // Text color for the query text
       ),
       inputDecorationTheme: const InputDecorationTheme(
         hintStyle: TextStyle(color: Colors.white54), // Hint text color
+        focusedBorder: UnderlineInputBorder(
+          borderSide: BorderSide(color: Colors.red), // Underline color when focused
+        ),
+        enabledBorder: UnderlineInputBorder(
+          borderSide: BorderSide(color: Colors.white54), // Underline color when not focused
+        ),
+      ),
+      textSelectionTheme: const TextSelectionThemeData(
+        cursorColor: Colors.white, // Cursor color
       ),
     );
   }
+
 
   @override
   List<Widget> buildActions(BuildContext context) {
@@ -78,7 +88,7 @@ class EpisodeSearchDelegate extends SearchDelegate<Episode?> {
             child: ListTile(
               leading: CachedNetworkImage(
                 imageUrl: episode.imageUrl,
-                placeholder: (context, url) => const CircularProgressIndicator(),
+                placeholder: (context, url) => const CircularProgressIndicator(color: Colors.red,),
                 errorWidget: (context, url, error) => const Icon(Icons.error),
                 width: 50,
                 height: 50,
@@ -126,7 +136,7 @@ class EpisodeSearchDelegate extends SearchDelegate<Episode?> {
             child: ListTile(
               leading: CachedNetworkImage(
                 imageUrl: episode.imageUrl,
-                placeholder: (context, url) => const CircularProgressIndicator(),
+                placeholder: (context, url) => const CircularProgressIndicator(color: Colors.red,),
                 errorWidget: (context, url, error) => const Icon(Icons.error),
                 width: 50,
                 height: 50,

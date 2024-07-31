@@ -12,6 +12,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'dart:io';
+import 'dart:convert';
 import 'package:path_provider/path_provider.dart';
 
 
@@ -97,7 +98,7 @@ class _HomeState extends State<Home> {
     try {
       var response = await http.get(Uri.parse(url));
       if (response.statusCode == 200) {
-        var document = html_parser.parse(response.body);
+        var document = html_parser.parse(utf8.decode(response.bodyBytes));
         return document;
       } else {
         setState(() {
@@ -178,29 +179,73 @@ class _HomeState extends State<Home> {
   String? getEpisodeContent(html.Document document) {
     var mainContent = document.querySelector('.single-post');
     if (mainContent != null) {
-      // Find and exclude the specific script sections
+      // Remove script sections containing 'window.playerConfiguration'
       var scriptElements = mainContent.querySelectorAll('script');
       for (var script in scriptElements) {
         if (script.text.contains('window.playerConfiguration')) {
           script.remove();
         }
       }
+
+      // Buffer to collect the content
       StringBuffer contentBuffer = StringBuffer();
+
+      // Iterate through each node and process text and links
       for (var node in mainContent.nodes) {
         if (node is html.Element) {
+          // Break on 'Transcript' section
           if (node.localName == 'h3' && node.text.contains('Transcript')) {
             break;
-          } else if (node.localName == 'p' && node.text.contains('Full Transcript')) {
-            continue;
-          } else {
-            contentBuffer.writeln(node.text.trim());
           }
+
+          // Skip 'Full Transcript' section
+          if (node.localName == 'p' && node.text.contains('Full Transcript')) {
+            continue;
+          }
+
+          // Process other elements
+          contentBuffer.writeln(processElementContent(node));
         }
       }
+
       return contentBuffer.toString().trim();
     } else {
       return 'Main content not found.';
     }
+  }
+
+  // Helper function to process element content and preserve links
+  String processElementContent(html.Element element) {
+    StringBuffer contentBuffer = StringBuffer();
+    for (var child in element.nodes) {
+      if (child is html.Text) {
+        contentBuffer.write(child.text.trim());
+      } else if (child is html.Element) {
+        if (child.localName == 'a') {
+          contentBuffer.write('[${child.text.trim()}](${child.attributes['href']})');
+        } else if (child.localName == 'h3') {
+          contentBuffer.writeln('\n${child.text.trim()}\n');
+        } else if (child.localName == 'ul') {
+          contentBuffer.writeln(processListContent(child));
+        } else if (child.localName == 'li') {
+          contentBuffer.writeln('- ${processElementContent(child)}');
+        } else {
+          contentBuffer.write(child.text.trim());
+        }
+      }
+    }
+    return contentBuffer.toString().trim();
+  }
+
+  // Helper function to process list content
+  String processListContent(html.Element element) {
+    StringBuffer listBuffer = StringBuffer();
+    for (var child in element.children) {
+      if (child.localName == 'li') {
+        listBuffer.writeln('- ${processElementContent(child)}');
+      }
+    }
+    return listBuffer.toString().trim();
   }
 
   int? extractEpisodeNumber(String episodeString) {
@@ -361,74 +406,94 @@ class _HomeState extends State<Home> {
       drawer: Drawer(
         child: Container(
           color: const Color.fromARGB(255, 0, 0, 0), 
-          child: ListView(
-            padding: EdgeInsets.zero,
+          child: Column(
             children: <Widget>[
-              const DrawerHeader(
-                decoration: BoxDecoration(
-                  image: DecorationImage(
-                    image: AssetImage('assets/img/hero10.jpg'),
-                    fit: BoxFit.cover,
-                  ),
-                ),
-                child: SizedBox(),
-              ),
-              ListTile(
-                leading: const Icon(Icons.download, color: Colors.white), 
-                title: const Text(
-                  'Downloads',
-                  style: TextStyle(color: Colors.white), 
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const DownloadsPage()),
-                  );
-                },
-              ),
-              ListTile(
-                leading: const Icon(Icons.favorite, color: Colors.white), 
-                title: const Text(
-                  'Favourites',
-                  style: TextStyle(color: Colors.white), 
-                ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(builder: (context) => const FavouritesPage()),
-                  );
-                },
-              ),
-              const Divider(color: Colors.grey), // Add a divider for better separation
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        _isNewestFirst ? 'Newest First' : 'Oldest First',
-                        style: const TextStyle(
-                          color: Colors.white,
-                          fontSize: 18.0, // Increase the font size
+              Expanded(
+                child: ListView(
+                  padding: EdgeInsets.zero,
+                  children: <Widget>[
+                    const DrawerHeader(
+                      decoration: BoxDecoration(
+                        image: DecorationImage(
+                          image: AssetImage('assets/img/hero10.jpg'),
+                          fit: BoxFit.cover,
                         ),
                       ),
+                      child: SizedBox(),
                     ),
-                    Switch(
-                      value: _isNewestFirst,
-                      onChanged: (value) {
-                        setState(() {
-                          _isNewestFirst = value;
-                          _episodeFuture = _initializeEpisodes(); // Re-fetch episodes with the new sorting order
-                        });
+                    ListTile(
+                      leading: const Icon(Icons.download, color: Colors.white), 
+                      title: const Text(
+                        'Downloads',
+                        style: TextStyle(color: Colors.white), 
+                      ),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const DownloadsPage()),
+                        );
                       },
-                      activeColor: Colors.red, // Color of the switch thumb when it's on
-                      activeTrackColor: Colors.red[200], // Color of the track when the switch is on
-                      inactiveThumbColor: Colors.grey, // Color of the switch thumb when it's off
-                      inactiveTrackColor: Colors.grey[600], // Color of the track when the switch is off
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.favorite, color: Colors.white), 
+                      title: const Text(
+                        'Favourites',
+                        style: TextStyle(color: Colors.white), 
+                      ),
+                      onTap: () {
+                        Navigator.push(
+                          context,
+                          MaterialPageRoute(builder: (context) => const FavouritesPage()),
+                        );
+                      },
+                    ),
+                    const Divider(color: Colors.white), // Add a divider for better separation
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          Expanded(
+                            child: Text(
+                              _isNewestFirst ? 'Newest First' : 'Oldest First',
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 18.0, // Increase the font size
+                              ),
+                            ),
+                          ),
+                          Switch(
+                            value: _isNewestFirst,
+                            onChanged: (value) {
+                              setState(() {
+                                _isNewestFirst = value;
+                                _episodeFuture = _initializeEpisodes(); // Re-fetch episodes with the new sorting order
+                              });
+                            },
+                            activeColor: Colors.red, // Color of the switch thumb when it's on
+                            activeTrackColor: Colors.red[200], // Color of the track when the switch is on
+                            inactiveThumbColor: Colors.grey, // Color of the switch thumb when it's off
+                            inactiveTrackColor: Colors.grey[600], // Color of the track when the switch is off
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
+              ),
+              // const Divider(color: Colors.white),
+              ListTile(
+                leading: const Icon(Icons.info, color: Colors.white), 
+                title: const Text(
+                  'About',
+                  style: TextStyle(color: Colors.white), 
+                ),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(builder: (context) => const AboutPage()),
+                  );
+                },
               ),
             ],
           ),
@@ -492,7 +557,6 @@ class _HomeState extends State<Home> {
     );
   }
 }
-
 
 
 class EpisodeItem extends StatefulWidget {
@@ -810,6 +874,10 @@ class EpisodeScreen extends StatefulWidget {
 class _EpisodeScreenState extends State<EpisodeScreen> {
   bool isFavourite = false;
   int? episodeNumber;
+  double _downloadProgress = 0.0;
+  bool _isDownloading = false;
+  String? _imagePath;
+  String? _audioPath;
 
   @override
   void initState() {
@@ -826,6 +894,118 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
       setState(() {
         isFavourite = !isFavourite;
       });
+    }
+  }
+
+  Future<void> _downloadEpisode() async {
+    if (episodeNumber != null) {
+      final prefs = await SharedPreferences.getInstance();
+      List<String> downloads = prefs.getStringList('downloads') ?? [];
+      if (!downloads.contains(episodeNumber.toString())) {
+        setState(() {
+          _isDownloading = true;
+        });
+
+        await _saveEpisodeFilesWithProgress(episodeNumber!, widget.imageUrl, widget.mp3Url, (progress) {
+          setState(() {
+            _downloadProgress = progress;
+          });
+        });
+
+        if (_imagePath != null && _audioPath != null) {
+          await saveEpisodeMetadata(episodeNumber!.toString(), widget.title, widget.dateTime, _imagePath!, _audioPath!);
+        }
+        setState(() {
+          _isDownloading = false;
+          _downloadProgress = 0.0;
+        });
+      } else {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Already in Downloads!'),
+              duration: const Duration(seconds: 5),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10.0),
+              ),
+            ),
+          );
+        }
+      }
+    }
+  }
+
+  Future<void> _saveEpisodeFilesWithProgress(int episodeNumber, String imageUrl, String audioUrl, Function(double) onProgress) async {
+    final directory = await getApplicationDocumentsDirectory();
+
+    // Create directories if they don't exist
+    final imgDir = Directory('${directory.path}/assets/img');
+    if (!await imgDir.exists()) {
+      await imgDir.create(recursive: true);
+    }
+
+    final audioDir = Directory('${directory.path}/assets/audio');
+    if (!await audioDir.exists()) {
+      await audioDir.create(recursive: true);
+    }
+
+    // Save image with progress
+    final imagePath = '${directory.path}/assets/img/episode_$episodeNumber.jpg';
+    final imageFile = File(imagePath);
+    await _downloadFile(imageUrl, imageFile);
+
+    // Save audio with progress
+    final audioPath = '${directory.path}/assets/audio/episode_$episodeNumber.mp3';
+    final audioFile = File(audioPath);
+    await _downloadFileWithProgress(audioUrl, audioFile, onProgress);
+
+    setState(() {
+      _imagePath = imagePath;
+      _audioPath = audioPath;
+    });
+  }
+
+  Future<void> _downloadFile(String url, File file) async {
+    final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
+    final fileSink = file.openWrite();
+
+    await response.stream.pipe(fileSink);
+
+    await fileSink.flush();
+    await fileSink.close();
+  }
+
+  Future<void> _downloadFileWithProgress(String url, File file, Function(double) onProgress) async {
+    final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
+    final contentLength = response.contentLength;
+    int bytesReceived = 0;
+
+    final fileSink = file.openWrite();
+
+    await response.stream.map((chunk) {
+      bytesReceived += chunk.length;
+      onProgress(bytesReceived / contentLength!);
+      return chunk;
+    }).pipe(fileSink);
+
+    await fileSink.flush();
+    await fileSink.close();
+  }
+
+  Future<void> saveEpisodeMetadata(String episodeNumber, String title, String dateTime, String imagePath, String audioPath) async {
+    final prefs = await SharedPreferences.getInstance();
+    
+    prefs.setString('offline_ep_${episodeNumber}_title', title);
+    prefs.setString('offline_ep_${episodeNumber}_dateTime', dateTime);
+    prefs.setString('offline_ep_${episodeNumber}_imagePath', imagePath);
+    prefs.setString('offline_ep_${episodeNumber}_audioPath', audioPath);
+    
+    List<String> downloads = prefs.getStringList('downloads') ?? [];
+    if (!downloads.contains(episodeNumber)) {
+      downloads.add(episodeNumber);
+      prefs.setStringList('downloads', downloads);
     }
   }
 
@@ -889,20 +1069,33 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
                       );
                     },
                   ),
-                  IconButton(
-                    icon: const Icon(
-                      Icons.download,
-                      size: 50,
-                      color: Colors.white,
-                    ),
-                    onPressed: () {},
-                  ),
+                  _isDownloading
+                    ? Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          CircularProgressIndicator(value: _downloadProgress, color: Colors.red),
+                          Positioned(
+                            child: Text(
+                              '${(_downloadProgress * 100).toStringAsFixed(0)}%',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    : IconButton(
+                        icon: const Icon(Icons.download, size: 50, color: Colors.white),
+                        onPressed: _downloadEpisode,
+                      ),
                 ],
               ),
             ),
             const SizedBox(height: 16),
             CachedNetworkImage(
-              placeholder: (context, url) => const CircularProgressIndicator(color: Colors.red,),
+              placeholder: (context, url) => const CircularProgressIndicator(color: Colors.red),
               errorWidget: (context, url, error) => const Icon(Icons.error),
               imageUrl: widget.imageUrl,
               fit: BoxFit.cover,
@@ -931,3 +1124,29 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
   }
 }
 
+
+class AboutPage extends StatelessWidget {
+  const AboutPage({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color.fromARGB(255, 4, 0, 0),
+      appBar: AppBar(
+        title: const Text('About', style: TextStyle(color: Colors.red)),
+        backgroundColor: const Color.fromARGB(255, 20, 0, 0),
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.home),
+            onPressed: () {
+              Navigator.of(context).pop(); // Return to the home page
+            },
+          ),
+        ],
+      ),
+      body: const Center(
+        child: Text('About Page Content'),
+      ),
+    );
+  }
+}
