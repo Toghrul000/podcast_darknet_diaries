@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:podcast_darknet_diaries/episode.dart';
 import 'package:podcast_darknet_diaries/main.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -86,10 +87,16 @@ class _FavouritesPageState extends State<FavouritesPage> {
       List<int> favouriteEpisodeNumbers = (jsonDecode(favouritesJson) as List<dynamic>).cast<int>();
       List<Episode> allEpisodes = await _getCachedEpisodes();
 
+      // // This is sorted version
+      // setState(() {
+      //   _favouriteEpisodes = allEpisodes
+      //       .where((episode) => favouriteEpisodeNumbers.contains(extractEpisodeNumber(episode.title) ?? -1))
+      //       .toList();
+      // });
       setState(() {
-        _favouriteEpisodes = allEpisodes
-            .where((episode) => favouriteEpisodeNumbers.contains(extractEpisodeNumber(episode.title) ?? -1))
-            .toList();
+        _favouriteEpisodes = favouriteEpisodeNumbers.map((episodeNumber) {
+          return allEpisodes.firstWhere((episode) => extractEpisodeNumber(episode.title) == episodeNumber);
+        }).toList();
       });
     }
   }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:podcast_darknet_diaries/episode.dart';
 import 'main.dart'; 
 
 class EpisodeSearchDelegate extends SearchDelegate<Episode?> {

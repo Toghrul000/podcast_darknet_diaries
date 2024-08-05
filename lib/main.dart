@@ -2,17 +2,15 @@ import 'dart:convert';
 import 'package:html/dom.dart' as html;
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as html_parser;
-import 'package:podcast_darknet_diaries/audio_player.dart';
 import 'package:podcast_darknet_diaries/downloads.dart';
+import 'package:podcast_darknet_diaries/episode.dart';
 import 'package:podcast_darknet_diaries/episode_search_delegate.dart';
 import 'package:podcast_darknet_diaries/favourites.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 
 
 
@@ -176,19 +174,17 @@ class _HomeState extends State<Home> {
   }
 
   String? getEpisodeContent(html.Document document) {
-    var mainContent = document.querySelector('.single-post');
+    final mainContent = document.querySelector('.single-post');
     if (mainContent != null) {
       // Remove script sections containing 'window.playerConfiguration'
-      var scriptElements = mainContent.querySelectorAll('script');
+      final scriptElements = mainContent.querySelectorAll('script');
       for (var script in scriptElements) {
         if (script.text.contains('window.playerConfiguration')) {
           script.remove();
         }
       }
-
       // Buffer to collect the content
-      StringBuffer contentBuffer = StringBuffer();
-
+      final contentBuffer = StringBuffer();
       // Iterate through each node and process text and links
       for (var node in mainContent.nodes) {
         if (node is html.Element) {
@@ -196,12 +192,10 @@ class _HomeState extends State<Home> {
           if (node.localName == 'h3' && node.text.contains('Transcript')) {
             break;
           }
-
           // Skip 'Full Transcript' section
           if (node.localName == 'p' && node.text.contains('Full Transcript')) {
             continue;
           }
-
           // Process other elements
           contentBuffer.writeln(processElementContent(node));
         }
@@ -213,30 +207,80 @@ class _HomeState extends State<Home> {
     }
   }
 
-  // Helper function to process element content and preserve links
   String processElementContent(html.Element element) {
     StringBuffer contentBuffer = StringBuffer();
     for (var child in element.nodes) {
       if (child is html.Text) {
-        contentBuffer.write(child.text.trim());
+        switch (element.localName) {
+          case 'a':
+            contentBuffer.write('[${child.text.trim()}](${child.attributes['href']})');
+            break;
+          case 'h1':
+            contentBuffer.writeln('\n# ${child.text.trim()}\n');
+            break;
+          case 'h2':
+            contentBuffer.writeln('\n## ${child.text.trim()}\n');
+            break;
+          case 'h3':
+            contentBuffer.writeln('\n### ${child.text.trim()}\n');
+            break;
+          case 'h4':
+            contentBuffer.writeln('\n#### ${child.text.trim()}\n');
+            break;
+          case 'h5':
+            contentBuffer.writeln('\n##### ${child.text.trim()}\n');
+            break;
+          case 'h6':
+            contentBuffer.writeln('\n###### ${child.text.trim()}\n');
+            break;
+          case 'p':
+            contentBuffer.writeln('\n${child.text.trim()}');
+            break;
+          default:
+            contentBuffer.write(child.text.trim());
+            break;
+        }
       } else if (child is html.Element) {
-        if (child.localName == 'a') {
-          contentBuffer.write('[${child.text.trim()}](${child.attributes['href']})');
-        } else if (child.localName == 'h3') {
-          contentBuffer.writeln('\n${child.text.trim()}\n');
-        } else if (child.localName == 'ul') {
-          contentBuffer.writeln(processListContent(child));
-        } else if (child.localName == 'li') {
-          contentBuffer.writeln('- ${processElementContent(child)}');
-        } else {
-          contentBuffer.write(child.text.trim());
+        switch (child.localName) {
+          case 'a':
+            contentBuffer.write(' [${child.text.trim()}](${child.attributes['href']})');
+            break;
+          case 'h1':
+            contentBuffer.writeln('\n# ${child.text.trim()}\n');
+            break;
+          case 'h2':
+            contentBuffer.writeln('\n## ${child.text.trim()}\n');
+            break;
+          case 'h3':
+            contentBuffer.writeln('\n### ${child.text.trim()}\n');
+            break;
+          case 'h4':
+            contentBuffer.writeln('\n#### ${child.text.trim()}\n');
+            break;
+          case 'h5':
+            contentBuffer.writeln('\n##### ${child.text.trim()}\n');
+            break;
+          case 'h6':
+            contentBuffer.writeln('\n###### ${child.text.trim()}\n');
+            break;
+          case 'p':
+            contentBuffer.writeln('\n${child.text.trim()}\n');
+            break;
+          case 'ul':
+            contentBuffer.writeln(processListContent(child));
+            break;
+          case 'li':
+            contentBuffer.writeln('- ${processElementContent(child)}');
+            break;
+          default:
+            contentBuffer.write(child.text.trim());
+            break;
         }
       }
     }
     return contentBuffer.toString().trim();
   }
 
-  // Helper function to process list content
   String processListContent(html.Element element) {
     StringBuffer listBuffer = StringBuffer();
     for (var child in element.children) {
@@ -246,6 +290,7 @@ class _HomeState extends State<Home> {
     }
     return listBuffer.toString().trim();
   }
+
 
   int? extractEpisodeNumber(String episodeString) {
     RegExp regExp = RegExp(r'EP (\d+):');
@@ -306,6 +351,67 @@ class _HomeState extends State<Home> {
     });
   }
 
+  void _handleHardReFetch() {
+    setState(() {
+      Provider.of<FavouritesProvider>(context, listen: false).setErrorMessage(null);
+      _errorMessage = null; // Reset the error message
+      _episodeFuture = _hardReFetch();
+    });
+  }
+
+  Future<List<Episode>> _hardReFetch() async {
+    try {
+      SharedPreferences prefs = await SharedPreferences.getInstance();
+      int? latestEpisode = await lastEpisodeNumber();
+
+      if (latestEpisode != null) {
+        // Clear all existing cached episodes
+        String? favouritesJson = prefs.getString('favourites');
+        
+        await prefs.clear();
+
+        for (int i = latestEpisode; i > 0; i--) {
+          String episodeUrl = 'https://darknetdiaries.com/episode/$i/';
+          html.Document? document = await fetchEpisodeDetails(episodeUrl);
+          if (document != null) {
+            String mp3Url = getMp3Url(document) ?? '';
+            String imageUrl = getBackgroundImageUrl(document) ?? '';
+            String title = getTitle(document) ?? '';
+            String dateTime = getDateTime(document) ?? '';
+            String content = getEpisodeContent(document) ?? '';
+            Episode episode = Episode(
+              imageUrl: imageUrl,
+              title: title,
+              dateTime: dateTime,
+              content: content,
+              mp3Url: mp3Url,
+            );
+
+            await _cacheEpisode(i, episode);
+          }
+
+        }
+        await prefs.setInt('lastEpisode', latestEpisode);
+
+        // Restore the favourites list after re-fetching
+        if (favouritesJson != null) {
+          await prefs.setString('favourites', favouritesJson);
+        }
+
+        // List<Episode> episodes = await _getCachedEpisodes();
+        List<Episode> episodes = await _getCachedEpisodes();
+        return _isNewestFirst ? episodes.reversed.toList() : episodes;
+      }
+
+      return [];
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to initialize episodes';
+      });
+      return [];
+    }
+  }
+
   Future<List<Episode>> _initializeEpisodes() async {
     try {
       SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -344,7 +450,7 @@ class _HomeState extends State<Home> {
       return [];
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to initialize episodes';
+        _errorMessage = 'Failed to initialize episodes $e';
       });
       return [];
     }
@@ -446,7 +552,7 @@ class _HomeState extends State<Home> {
                         );
                       },
                     ),
-                    const Divider(color: Colors.white), // Add a divider for better separation
+                    const Divider(color: Colors.white), 
                     Padding(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
                       child: Row(
@@ -457,7 +563,7 @@ class _HomeState extends State<Home> {
                               _isNewestFirst ? 'Newest First' : 'Oldest First',
                               style: const TextStyle(
                                 color: Colors.white,
-                                fontSize: 18.0, // Increase the font size
+                                fontSize: 18.0, 
                               ),
                             ),
                           ),
@@ -466,19 +572,30 @@ class _HomeState extends State<Home> {
                             onChanged: (value) {
                               setState(() {
                                 _isNewestFirst = value;
-                                _episodeFuture = _initializeEpisodes(); // Re-fetch episodes with the new sorting order
+                                reFetch();
                               });
                             },
-                            activeColor: Colors.red, // Color of the switch thumb when it's on
-                            activeTrackColor: Colors.red[200], // Color of the track when the switch is on
-                            inactiveThumbColor: Colors.grey, // Color of the switch thumb when it's off
-                            inactiveTrackColor: Colors.grey[600], // Color of the track when the switch is off
+                            activeColor: Colors.red, 
+                            activeTrackColor: Colors.red[200], 
+                            inactiveThumbColor: Colors.grey, 
+                            inactiveTrackColor: Colors.grey[600], 
                           ),
                         ],
                       ),
                     ),
                   ],
                 ),
+              ),
+              ListTile(
+                leading: const Icon(Icons.refresh, color: Colors.white), 
+                title: const Text(
+                  'Hard Re-Fetch episodes',
+                  style: TextStyle(color: Colors.white), 
+                ),
+                onTap: () {
+                  Navigator.pop(context); // Close the drawer before starting fetch
+                  _handleHardReFetch(); // Handle the re-fetching
+                },
               ),
               // const Divider(color: Colors.white),
               ListTile(
@@ -558,571 +675,6 @@ class _HomeState extends State<Home> {
 }
 
 
-class EpisodeItem extends StatefulWidget {
-  final String imageUrl;
-  final String title;
-  final String dateTime;
-  final String content;
-  final String mp3Url;
-  final bool isFavourite;
-  final VoidCallback onFavouriteToggle;
-
-  const EpisodeItem({
-    required this.imageUrl,
-    required this.title,
-    required this.dateTime,
-    required this.content,
-    required this.mp3Url,
-    required this.isFavourite,
-    required this.onFavouriteToggle,
-    super.key,
-  });
-
-  @override
-  State<EpisodeItem> createState() => _EpisodeItemState();
-}
-
-class _EpisodeItemState extends State<EpisodeItem> {
-  double _downloadProgress = 0.0;
-  bool _isDownloading = false;
-  String? _imagePath;
-  String? _audioPath;
-
-
-  int? extractEpisodeNumber(String episodeString) {
-    RegExp regExp = RegExp(r'EP (\d+):');
-    Match? match = regExp.firstMatch(episodeString);
-    if (match != null) {
-      String episodeNumberStr = match.group(1)!;
-      int episodeNumber = int.parse(episodeNumberStr);
-      return episodeNumber;
-    } else {
-      return null;
-    }
-  }
-
-
-  Future<void> _downloadEpisode() async {
-    int? episodeNumber = extractEpisodeNumber(widget.title);
-    if (episodeNumber != null){
-      final prefs = await SharedPreferences.getInstance();
-      List<String> downloads = prefs.getStringList('downloads') ?? [];
-      if (!downloads.contains(episodeNumber.toString())) {
-        setState(() {
-          _isDownloading = true;
-        });
-
-        await _saveEpisodeFilesWithProgress(episodeNumber, widget.imageUrl, widget.mp3Url, (progress) {
-          setState(() {
-            _downloadProgress = progress;
-          });
-        });
-
-        if (_imagePath != null && _audioPath != null) {
-          await saveEpisodeMetadata(episodeNumber.toString(), widget.title, widget.dateTime, _imagePath!, _audioPath!);
-        }
-        setState(() {
-          _isDownloading = false;
-          _downloadProgress = 0.0;
-        });
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Already in Downloads!'),
-              duration: const Duration(seconds: 5),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10.0),
-              ),
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  Future<void> _saveEpisodeFilesWithProgress(int episodeNumber, String imageUrl, String audioUrl, Function(double) onProgress) async {
-    final directory = await getApplicationDocumentsDirectory();
-
-    // Create directories if they don't exist
-    final imgDir = Directory('${directory.path}/assets/img');
-    if (!await imgDir.exists()) {
-      await imgDir.create(recursive: true);
-    }
-
-    final audioDir = Directory('${directory.path}/assets/audio');
-    if (!await audioDir.exists()) {
-      await audioDir.create(recursive: true);
-    }
-
-    // Save image with progress
-    final imagePath = '${directory.path}/assets/img/episode_$episodeNumber.jpg';
-    final imageFile = File(imagePath);
-    await _downloadFile(imageUrl, imageFile);
-
-    // Save audio with progress
-    final audioPath = '${directory.path}/assets/audio/episode_$episodeNumber.mp3';
-    final audioFile = File(audioPath);
-    await _downloadFileWithProgress(audioUrl, audioFile, onProgress);
-
-    setState(() {
-      _imagePath = imagePath;
-      _audioPath = audioPath;
-    });
-  }
-
-    Future<void> _downloadFile(String url, File file) async {
-      final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
-      final fileSink = file.openWrite();
-
-      await response.stream.pipe(fileSink);
-
-      await fileSink.flush();
-      await fileSink.close();
-    }
-
-
-  Future<void> _downloadFileWithProgress(String url, File file, Function(double) onProgress) async {
-    final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
-    final contentLength = response.contentLength;
-    int bytesReceived = 0;
-
-    final fileSink = file.openWrite();
-
-    await response.stream.map((chunk) {
-      bytesReceived += chunk.length;
-      onProgress(bytesReceived / contentLength!);
-      return chunk;
-    }).pipe(fileSink);
-
-    await fileSink.flush();
-    await fileSink.close();
-  }
-
-  Future<void> saveEpisodeMetadata(String episodeNumber, String title, String dateTime, String imagePath, String audioPath) async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    prefs.setString('offline_ep_${episodeNumber}_title', title);
-    prefs.setString('offline_ep_${episodeNumber}_dateTime', dateTime);
-    prefs.setString('offline_ep_${episodeNumber}_imagePath', imagePath);
-    prefs.setString('offline_ep_${episodeNumber}_audioPath', audioPath);
-    
-    List<String> downloads = prefs.getStringList('downloads') ?? [];
-    if (!downloads.contains(episodeNumber)) {
-      downloads.add(episodeNumber);
-      prefs.setStringList('downloads', downloads);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Padding(
-      padding: const EdgeInsets.all(8.0),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          GestureDetector(
-            onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => EpisodeScreen(
-                    imageUrl: widget.imageUrl,
-                    title: widget.title,
-                    dateTime: widget.dateTime,
-                    content: widget.content,
-                    mp3Url: widget.mp3Url,
-                  ),
-                ),
-              );
-            },
-            child: CachedNetworkImage(
-              imageUrl: widget.imageUrl,
-              placeholder: (context, url) => const CircularProgressIndicator(color: Colors.red,),
-              errorWidget: (context, url, error) => const Icon(Icons.error),
-              height: 105,
-              width: 105,
-              fit: BoxFit.cover,
-            ),
-          ),
-          const SizedBox(width: 16),
-          Expanded(
-            child: GestureDetector(
-              onTap: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => EpisodeScreen(
-                      imageUrl: widget.imageUrl,
-                      title: widget.title,
-                      dateTime: widget.dateTime,
-                      content: widget.content,
-                      mp3Url: widget.mp3Url,
-                    ),
-                  ),
-                );
-              },
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    widget.title,
-                    style: const TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    widget.dateTime,
-                    style: const TextStyle(fontSize: 14, color: Colors.grey),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    widget.content,
-                    style: const TextStyle(fontSize: 16, color: Colors.white),
-                    overflow: TextOverflow.ellipsis,
-                    maxLines: 2,
-                  ),
-                ],
-              ),
-            ),
-          ),
-          Column(
-            children: [
-              IconButton(
-                icon: Icon(
-                  widget.isFavourite ? Icons.favorite : Icons.favorite_border,
-                  color: Colors.white,
-                ),
-                onPressed: widget.onFavouriteToggle,
-              ),
-              IconButton(
-                icon: const Icon(
-                  Icons.play_arrow_rounded,
-                  color: Colors.white,
-                ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AudioPlayerScreen(
-                        imageUrl: widget.imageUrl,
-                        title: widget.title,
-                        dateTime: widget.dateTime,
-                        mp3Url: widget.mp3Url,
-                      ),
-                    ),
-                  );
-                },
-              ),
-              _isDownloading
-              ? Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    CircularProgressIndicator(value: _downloadProgress, color: Colors.red,),
-                    Positioned(
-                      child: Text(
-                        '${(_downloadProgress * 100).toStringAsFixed(0)}%',
-                        style: const TextStyle(
-                          fontSize: 12,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.white,
-                        ),
-                      ),
-                    ),
-                  ],
-                )
-          : IconButton(
-              icon: const Icon(Icons.download, color: Colors.white,),
-              onPressed: _downloadEpisode,
-            ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-
-
-class EpisodeScreen extends StatefulWidget {
-  final String imageUrl;
-  final String title;
-  final String dateTime;
-  final String content;
-  final String mp3Url;
-
-  const EpisodeScreen({
-    required this.imageUrl,
-    required this.title,
-    required this.dateTime,
-    required this.content,
-    required this.mp3Url,
-    super.key,
-  });
-
-  @override
-  _EpisodeScreenState createState() => _EpisodeScreenState();
-}
-
-class _EpisodeScreenState extends State<EpisodeScreen> {
-  bool isFavourite = false;
-  int? episodeNumber;
-  double _downloadProgress = 0.0;
-  bool _isDownloading = false;
-  String? _imagePath;
-  String? _audioPath;
-
-  @override
-  void initState() {
-    super.initState();
-    episodeNumber = extractEpisodeNumber(widget.title);
-    if (episodeNumber != null) {
-      isFavourite = Provider.of<FavouritesProvider>(context, listen: false).favourites.contains(episodeNumber);
-    }
-  }
-
-  void toggleFavourite() {
-    if (episodeNumber != null) {
-      Provider.of<FavouritesProvider>(context, listen: false).toggleFavourite(episodeNumber!);
-      setState(() {
-        isFavourite = !isFavourite;
-      });
-    }
-  }
-
-  Future<void> _downloadEpisode() async {
-    if (episodeNumber != null) {
-      final prefs = await SharedPreferences.getInstance();
-      List<String> downloads = prefs.getStringList('downloads') ?? [];
-      if (!downloads.contains(episodeNumber.toString())) {
-        setState(() {
-          _isDownloading = true;
-        });
-
-        await _saveEpisodeFilesWithProgress(episodeNumber!, widget.imageUrl, widget.mp3Url, (progress) {
-          setState(() {
-            _downloadProgress = progress;
-          });
-        });
-
-        if (_imagePath != null && _audioPath != null) {
-          await saveEpisodeMetadata(episodeNumber!.toString(), widget.title, widget.dateTime, _imagePath!, _audioPath!);
-        }
-        setState(() {
-          _isDownloading = false;
-          _downloadProgress = 0.0;
-        });
-      } else {
-        if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: const Text('Already in Downloads!'),
-              duration: const Duration(seconds: 5),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10.0),
-              ),
-            ),
-          );
-        }
-      }
-    }
-  }
-
-  Future<void> _saveEpisodeFilesWithProgress(int episodeNumber, String imageUrl, String audioUrl, Function(double) onProgress) async {
-    final directory = await getApplicationDocumentsDirectory();
-
-    // Create directories if they don't exist
-    final imgDir = Directory('${directory.path}/assets/img');
-    if (!await imgDir.exists()) {
-      await imgDir.create(recursive: true);
-    }
-
-    final audioDir = Directory('${directory.path}/assets/audio');
-    if (!await audioDir.exists()) {
-      await audioDir.create(recursive: true);
-    }
-
-    // Save image with progress
-    final imagePath = '${directory.path}/assets/img/episode_$episodeNumber.jpg';
-    final imageFile = File(imagePath);
-    await _downloadFile(imageUrl, imageFile);
-
-    // Save audio with progress
-    final audioPath = '${directory.path}/assets/audio/episode_$episodeNumber.mp3';
-    final audioFile = File(audioPath);
-    await _downloadFileWithProgress(audioUrl, audioFile, onProgress);
-
-    setState(() {
-      _imagePath = imagePath;
-      _audioPath = audioPath;
-    });
-  }
-
-  Future<void> _downloadFile(String url, File file) async {
-    final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
-    final fileSink = file.openWrite();
-
-    await response.stream.pipe(fileSink);
-
-    await fileSink.flush();
-    await fileSink.close();
-  }
-
-  Future<void> _downloadFileWithProgress(String url, File file, Function(double) onProgress) async {
-    final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
-    final contentLength = response.contentLength;
-    int bytesReceived = 0;
-
-    final fileSink = file.openWrite();
-
-    await response.stream.map((chunk) {
-      bytesReceived += chunk.length;
-      onProgress(bytesReceived / contentLength!);
-      return chunk;
-    }).pipe(fileSink);
-
-    await fileSink.flush();
-    await fileSink.close();
-  }
-
-  Future<void> saveEpisodeMetadata(String episodeNumber, String title, String dateTime, String imagePath, String audioPath) async {
-    final prefs = await SharedPreferences.getInstance();
-    
-    prefs.setString('offline_ep_${episodeNumber}_title', title);
-    prefs.setString('offline_ep_${episodeNumber}_dateTime', dateTime);
-    prefs.setString('offline_ep_${episodeNumber}_imagePath', imagePath);
-    prefs.setString('offline_ep_${episodeNumber}_audioPath', audioPath);
-    
-    List<String> downloads = prefs.getStringList('downloads') ?? [];
-    if (!downloads.contains(episodeNumber)) {
-      downloads.add(episodeNumber);
-      prefs.setStringList('downloads', downloads);
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: Colors.black, // Set background color to black
-      appBar: AppBar(
-        backgroundColor: Colors.black, // Set AppBar background color to black
-        leading: IconButton(
-          icon: const Icon(Icons.home, color: Colors.white), // Home icon color to white
-          onPressed: () {
-            Navigator.popUntil(context, (route) => route.isFirst);
-          },
-        ),
-        title: Text(
-          widget.title,
-          style: const TextStyle(color: Colors.white), // AppBar title color to white
-        ),
-      ),
-      body: SingleChildScrollView(
-        padding: const EdgeInsets.all(16.0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              widget.title,
-              style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
-            ),
-            const SizedBox(height: 8),
-            Text(
-              widget.dateTime,
-              style: const TextStyle(fontSize: 16, color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            Center(
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  IconButton(
-                    icon: Icon(
-                      isFavourite ? Icons.favorite : Icons.favorite_border,
-                      size: 50,
-                      color: Colors.white,
-                    ),
-                    onPressed: toggleFavourite,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.play_arrow_rounded, size: 64, color: Colors.white), // Play button color to white
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => AudioPlayerScreen(
-                            imageUrl: widget.imageUrl,
-                            title: widget.title,
-                            dateTime: widget.dateTime,
-                            mp3Url: widget.mp3Url,
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                  _isDownloading
-                    ? Stack(
-                        alignment: Alignment.center,
-                        children: [
-                          CircularProgressIndicator(value: _downloadProgress, color: Colors.red),
-                          Positioned(
-                            child: Text(
-                              '${(_downloadProgress * 100).toStringAsFixed(0)}%',
-                              style: const TextStyle(
-                                fontSize: 12,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white,
-                              ),
-                            ),
-                          ),
-                        ],
-                      )
-                    : IconButton(
-                        icon: const Icon(Icons.download, size: 50, color: Colors.white),
-                        onPressed: _downloadEpisode,
-                      ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            CachedNetworkImage(
-              placeholder: (context, url) => const CircularProgressIndicator(color: Colors.red),
-              errorWidget: (context, url, error) => const Icon(Icons.error),
-              imageUrl: widget.imageUrl,
-              fit: BoxFit.cover,
-            ),
-            const SizedBox(height: 16),
-            Text(
-              widget.content,
-              style: const TextStyle(fontSize: 18, color: Colors.white),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  int? extractEpisodeNumber(String episodeString) {
-    RegExp regExp = RegExp(r'EP (\d+):');
-    Match? match = regExp.firstMatch(episodeString);
-    if (match != null) {
-      String episodeNumberStr = match.group(1)!;
-      int episodeNumber = int.parse(episodeNumberStr);
-      return episodeNumber;
-    } else {
-      return null;
-    }
-  }
-}
-
 
 class AboutPage extends StatelessWidget {
   const AboutPage({super.key});
@@ -1143,8 +695,34 @@ class AboutPage extends StatelessWidget {
           ),
         ],
       ),
-      body: const Center(
-        child: Text('About Page Content'),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Center(
+          child: Markdown(
+            data: '''
+# Welcome to Darknet Diaries fanmade podcast app!
+
+This app was created as a fun project to learn Flutter mobile development and explore its capabilities. I love Darknet Diaries, and that is why I chose this podcast for the app. I hope you enjoy using the app as much as I enjoyed making it. 
+
+If you have any comments or feedback about the app that you want to directly send to me, feel free to send them to [25879G@protonmail.com](mailto:25879G@protonmail.com).
+            ''',
+            styleSheet: MarkdownStyleSheet(
+              p: const TextStyle(
+                color: Colors.white,
+                fontSize: 16,
+              ),
+              h1: const TextStyle(
+                color: Colors.red,
+                fontSize: 24,
+                fontWeight: FontWeight.bold,
+              ),
+              a: const TextStyle(
+                color: Colors.blue,
+                decoration: TextDecoration.underline,
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
