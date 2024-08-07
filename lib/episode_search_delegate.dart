@@ -77,6 +77,7 @@ class EpisodeSearchDelegate extends SearchDelegate<Episode?> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => EpisodeScreen(
+                    episodeNumber: episode.episodeNumber,
                     imageUrl: episode.imageUrl,
                     title: episode.title,
                     dateTime: episode.dateTime,
@@ -125,6 +126,7 @@ class EpisodeSearchDelegate extends SearchDelegate<Episode?> {
                 context,
                 MaterialPageRoute(
                   builder: (context) => EpisodeScreen(
+                    episodeNumber: episode.episodeNumber,
                     imageUrl: episode.imageUrl,
                     title: episode.title,
                     dateTime: episode.dateTime,

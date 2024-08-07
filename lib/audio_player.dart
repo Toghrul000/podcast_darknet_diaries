@@ -1,6 +1,7 @@
 import 'dart:io';
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:podcast_darknet_diaries/image_item.dart';
@@ -35,7 +36,7 @@ class AudioPlayerScreen extends StatefulWidget {
   });
 
   @override
-  _AudioPlayerScreenState createState() => _AudioPlayerScreenState();
+  State<AudioPlayerScreen> createState() => _AudioPlayerScreenState();
 }
 
 class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
@@ -57,7 +58,6 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
   @override
   void initState() {
     super.initState();
-    //_audioPlayer = AudioPlayer()..setUrl(widget.mp3Url);
     _audioPlayer = AudioPlayer();
     _init();
 
@@ -79,29 +79,50 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
     }
   }
 
-  Future<void> _init() async{
+  Future<void> _init() async {
     final UriAudioSource audioSource;
-    if(File(widget.mp3Url).existsSync() && File(widget.imageUrl).existsSync()){
-      audioSource = AudioSource.uri(
-        Uri.file(widget.mp3Url),
-        tag: MediaItem(
-          id: '${extractEpisodeNumber(widget.title)}', 
-          title: widget.title,
-          artUri: Uri.file(widget.imageUrl)
-        )
-      );
-    } else {
-      audioSource = AudioSource.uri(
-        Uri.parse(widget.mp3Url),
-        tag: MediaItem(
-          id: '${extractEpisodeNumber(widget.title)}', 
-          title: widget.title,
-          artUri: Uri.parse(widget.imageUrl)
-          )
-      );
+    try {
+      if (File(widget.mp3Url).existsSync() && File(widget.imageUrl).existsSync()) {
+        audioSource = AudioSource.uri(
+          Uri.file(widget.mp3Url),
+          tag: MediaItem(
+            id: '${extractEpisodeNumber(widget.title)}',
+            title: widget.title,
+            artUri: Uri.file(widget.imageUrl),
+          ),
+        );
+      } else {
+        audioSource = AudioSource.uri(
+          Uri.parse(widget.mp3Url),
+          tag: MediaItem(
+            id: '${extractEpisodeNumber(widget.title)}',
+            title: widget.title,
+            artUri: Uri.parse(widget.imageUrl),
+          ),
+        );
+      }
+      await _audioPlayer.setAudioSource(audioSource);
+    } on SocketException catch (e) {
+      _showErrorSnackBar('Network Error:$e');
+    } on PlatformException catch (e) {
+       _showErrorSnackBar('Error:$e');
+    } catch (e) {
+      _showErrorSnackBar('Something went wrong: $e');
     }
+  }
 
-    await _audioPlayer.setAudioSource(audioSource);
+  void _showErrorSnackBar(String message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 5),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10.0),
+        ),
+      ),
+    );
   }
 
   @override
@@ -155,7 +176,7 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                             color: Colors.black12,
                             offset: Offset(2, 4),
                             blurRadius: 4,
-                          )
+                          ),
                         ],
                         borderRadius: BorderRadius.circular(10),
                       ),
@@ -223,22 +244,37 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
  
     );
   }
-
-
 }
 
 
+
+
 class Controls extends StatelessWidget {
-  final AudioPlayer audioPlayer; 
+  final AudioPlayer audioPlayer;
+
   const Controls({
-    super.key, 
-    required this.audioPlayer
-    });
-  
+    super.key,
+    required this.audioPlayer,
+  });
+
+  void _showErrorSnackBar(BuildContext context, message) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 5),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10.0),
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return StreamBuilder<PlayerState>(
-      stream: audioPlayer.playerStateStream, 
+      stream: audioPlayer.playerStateStream,
       builder: (context, snapshot) {
         final playerState = snapshot.data;
         final processingState = playerState?.processingState;
@@ -248,9 +284,23 @@ class Controls extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             IconButton(
-              onPressed: () {
-                final newPosition = audioPlayer.position - const Duration(seconds: 10);
-                audioPlayer.seek(newPosition < Duration.zero ? Duration.zero : newPosition);
+              onPressed: () async {
+                try {
+                  final newPosition = audioPlayer.position - const Duration(seconds: 10);
+                  await audioPlayer.seek(newPosition < Duration.zero ? Duration.zero : newPosition);
+                } on SocketException catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Network Error:$e');
+                    }
+                  } on PlatformException catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Error:$e');
+                    }
+                  } catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Something went wrong:$e');
+                    }
+                  }
               },
               iconSize: 40,
               color: Colors.white,
@@ -258,14 +308,46 @@ class Controls extends StatelessWidget {
             ),
             if (!(playing ?? false)) ...[
               IconButton(
-                onPressed: audioPlayer.play, 
+                onPressed: () async {
+                  try {
+                    await audioPlayer.play();
+                  } on SocketException catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Network Error:$e');
+                    }
+                  } on PlatformException catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Error:$e');
+                    }
+                  } catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Something went wrong:$e');
+                    }
+                  }
+                },
                 iconSize: 80,
                 color: Colors.white,
                 icon: const Icon(Icons.play_arrow_rounded),
               ),
             ] else if (processingState != ProcessingState.completed) ...[
               IconButton(
-                onPressed: audioPlayer.pause, 
+                onPressed: () async {
+                  try {
+                    await audioPlayer.pause();
+                  } on SocketException catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Network Error:$e');
+                    }
+                  } on PlatformException catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Error:$e');
+                    }
+                  } catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Something went wrong:$e');
+                    }
+                  }
+                },
                 iconSize: 80,
                 color: Colors.white,
                 icon: const Icon(Icons.pause_rounded),
@@ -278,9 +360,23 @@ class Controls extends StatelessWidget {
               ),
             ],
             IconButton(
-              onPressed: () {
-                final newPosition = audioPlayer.position + const Duration(seconds: 10);
-                audioPlayer.seek(newPosition);
+              onPressed: () async {
+                try {
+                  final newPosition = audioPlayer.position + const Duration(seconds: 10);
+                  await audioPlayer.seek(newPosition);
+                } on SocketException catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Network Error:$e');
+                    }
+                  } on PlatformException catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Error:$e');
+                    }
+                  } catch (e) {
+                    if(context.mounted){
+                      _showErrorSnackBar(context, 'Something went wrong:$e');
+                    }
+                  }
               },
               iconSize: 40,
               color: Colors.white,
@@ -288,8 +384,8 @@ class Controls extends StatelessWidget {
             ),
           ],
         );
-      }
+      },
     );
   }
-}
 
+}

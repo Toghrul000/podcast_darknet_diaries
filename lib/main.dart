@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 
 
@@ -21,24 +22,31 @@ Future<void> main() async {
     androidNotificationChannelName: 'Audio playback',
     androidNotificationOngoing: true,
   );
-  runApp(ChangeNotifierProvider(
-      create: (context) => FavouritesProvider()..loadFavourites(),
+  runApp(
+    MultiProvider(
+      providers: [
+        ChangeNotifierProvider(create: (context) => FavouritesProvider()..loadFavourites()),
+        ChangeNotifierProvider(create: (context) => DownloadProvider()),
+      ],
       child: const MyApp(),
-    ),);
+    ),
+  );
 }
 
 
 class Episode {
+  final int episodeNumber;
   final String imageUrl;
   final String title;
   final String dateTime;
   final String content;
   final String mp3Url;
-  Episode({required this.imageUrl, required this.title, required this.dateTime, required this.content, required this.mp3Url});
+  Episode({required this.episodeNumber,required this.imageUrl, required this.title, required this.dateTime, required this.content, required this.mp3Url});
 
   // Method to convert Episode to JSON
   Map<String, dynamic> toJson() {
     return {
+      'episodeNumber': episodeNumber,
       'imageUrl': imageUrl,
       'title': title,
       'dateTime': dateTime,
@@ -50,6 +58,7 @@ class Episode {
   // Method to create Episode from JSON
   factory Episode.fromJson(Map<String, dynamic> json) {
     return Episode(
+      episodeNumber: json['episodeNumber'],
       imageUrl: json['imageUrl'],
       title: json['title'],
       dateTime: json['dateTime'],
@@ -213,7 +222,7 @@ class _HomeState extends State<Home> {
       if (child is html.Text) {
         switch (element.localName) {
           case 'a':
-            contentBuffer.write('[${child.text.trim()}](${child.attributes['href']})');
+            contentBuffer.write(' [${child.text.trim()}](${child.attributes['href']})');
             break;
           case 'h1':
             contentBuffer.writeln('\n# ${child.text.trim()}\n');
@@ -292,7 +301,7 @@ class _HomeState extends State<Home> {
   }
 
 
-  int? extractEpisodeNumber(String episodeString) {
+  int extractEpisodeNumber(String episodeString) {
     RegExp regExp = RegExp(r'EP (\d+):');
     Match? match = regExp.firstMatch(episodeString);
     if (match != null) {
@@ -300,7 +309,7 @@ class _HomeState extends State<Home> {
       int episodeNumber = int.parse(episodeNumberStr);
       return episodeNumber;
     } else {
-      return null;
+      return -1;
     }
   }
 
@@ -379,7 +388,9 @@ class _HomeState extends State<Home> {
             String title = getTitle(document) ?? '';
             String dateTime = getDateTime(document) ?? '';
             String content = getEpisodeContent(document) ?? '';
+            
             Episode episode = Episode(
+              episodeNumber: extractEpisodeNumber(title),
               imageUrl: imageUrl,
               title: title,
               dateTime: dateTime,
@@ -399,7 +410,7 @@ class _HomeState extends State<Home> {
         }
 
         // List<Episode> episodes = await _getCachedEpisodes();
-        List<Episode> episodes = await _getCachedEpisodes();
+        episodes = await _getCachedEpisodes();
         return _isNewestFirst ? episodes.reversed.toList() : episodes;
       }
 
@@ -430,6 +441,7 @@ class _HomeState extends State<Home> {
               String dateTime = getDateTime(document) ?? '';
               String content = getEpisodeContent(document) ?? '';
               Episode episode = Episode(
+                episodeNumber: extractEpisodeNumber(title),
                 imageUrl: imageUrl,
                 title: title,
                 dateTime: dateTime,
@@ -450,7 +462,7 @@ class _HomeState extends State<Home> {
       return [];
     } catch (e) {
       setState(() {
-        _errorMessage = 'Failed to initialize episodes $e';
+        _errorMessage = 'Failed to initialize episodes';
       });
       return [];
     }
@@ -645,12 +657,11 @@ class _HomeState extends State<Home> {
                   itemCount: episodes.length,
                   itemBuilder: (context, index) {
                     Episode episode = episodes[index];
-
-                    int? episodeNumber = extractEpisodeNumber(episode.title);
-                    bool isFavourite = episodeNumber != null &&
-                        favouritesProvider.favourites.contains(episodeNumber);
+                    int episodeNumber = episode.episodeNumber;
+                    bool isFavourite = favouritesProvider.favourites.contains(episodeNumber);
 
                     return EpisodeItem(
+                      episodeNumber: episodeNumber,
                       imageUrl: episode.imageUrl,
                       title: episode.title,
                       dateTime: episode.dateTime,
@@ -658,9 +669,7 @@ class _HomeState extends State<Home> {
                       mp3Url: episode.mp3Url,
                       isFavourite: isFavourite,
                       onFavouriteToggle: () {
-                        if (episodeNumber != null) {
-                          favouritesProvider.toggleFavourite(episodeNumber);
-                        }
+                        favouritesProvider.toggleFavourite(episodeNumber);
                       },
                     );
                   },
@@ -721,6 +730,9 @@ If you have any comments or feedback about the app that you want to directly sen
                 decoration: TextDecoration.underline,
               ),
             ),
+            onTapLink: (text, url, title) {
+                  launchUrl(Uri.parse(url!));
+              },
           ),
         ),
       ),

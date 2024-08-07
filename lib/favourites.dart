@@ -52,15 +52,17 @@ class FavouritesProvider extends ChangeNotifier {
 }
 
 
+
 class FavouritesPage extends StatefulWidget {
   const FavouritesPage({super.key});
 
   @override
-  _FavouritesPageState createState() => _FavouritesPageState();
+  State<FavouritesPage> createState() => _FavouritesPageState();
 }
 
 class _FavouritesPageState extends State<FavouritesPage> {
   List<Episode> _favouriteEpisodes = [];
+  bool _isOldestToLatest = true; // Track the sorting order
 
   @override
   void initState() {
@@ -87,18 +89,29 @@ class _FavouritesPageState extends State<FavouritesPage> {
       List<int> favouriteEpisodeNumbers = (jsonDecode(favouritesJson) as List<dynamic>).cast<int>();
       List<Episode> allEpisodes = await _getCachedEpisodes();
 
-      // // This is sorted version
-      // setState(() {
-      //   _favouriteEpisodes = allEpisodes
-      //       .where((episode) => favouriteEpisodeNumbers.contains(extractEpisodeNumber(episode.title) ?? -1))
-      //       .toList();
-      // });
       setState(() {
         _favouriteEpisodes = favouriteEpisodeNumbers.map((episodeNumber) {
           return allEpisodes.firstWhere((episode) => extractEpisodeNumber(episode.title) == episodeNumber);
         }).toList();
       });
     }
+  }
+
+  List<Episode> _sortEpisodes(List<Episode> episodes) {
+    if (_isOldestToLatest) {
+      episodes.sort((a, b) => extractEpisodeNumber(a.title)!.compareTo(extractEpisodeNumber(b.title)!));
+      return episodes;
+    } else {
+      episodes.sort((a, b) => extractEpisodeNumber(b.title)!.compareTo(extractEpisodeNumber(a.title)!));
+      return episodes;
+    }
+  }
+
+  Future<void> _toggleSortOrder() async {
+    setState(() {
+      _isOldestToLatest = !_isOldestToLatest;
+      _favouriteEpisodes = _sortEpisodes(_favouriteEpisodes);
+    });
   }
 
   Future<List<Episode>> _getCachedEpisodes() async {
@@ -127,6 +140,36 @@ class _FavouritesPageState extends State<FavouritesPage> {
         title: const Text('Favourites', style: TextStyle(color: Colors.red)),
         backgroundColor: const Color.fromARGB(255, 20, 0, 0),
         actions: [
+          ElevatedButton(
+            style: ElevatedButton.styleFrom(
+              foregroundColor: Colors.white,
+              backgroundColor: const Color.fromARGB(255, 115, 12, 4),
+              padding: const EdgeInsets.symmetric(horizontal: 12.0, vertical: 8.0), // Adjust padding to make the button smaller
+              textStyle: const TextStyle(
+                fontWeight: FontWeight.bold, // Make text bold
+              ),
+            ),
+            onPressed: _toggleSortOrder,
+            child: Row(
+              mainAxisSize: MainAxisSize.min, // Ensure the row is as small as the content
+              children: [
+                const Text(
+                  'Sort ',
+                  style: TextStyle(
+                    fontWeight: FontWeight.bold,
+                    fontSize: 17,
+                    color: Colors.grey,
+                  ),
+                ),
+                Icon(
+                  _isOldestToLatest ? Icons.arrow_upward : Icons.arrow_downward,
+                  color: Colors.grey,
+                ),
+              ],
+            ),
+          ),
+
+          const SizedBox(width: 12),
           IconButton(
             icon: const Icon(Icons.home),
             onPressed: () {
@@ -158,6 +201,7 @@ class _FavouritesPageState extends State<FavouritesPage> {
                     Episode episode = _favouriteEpisodes[index];
                     int? episodeNumber = extractEpisodeNumber(episode.title);
                     return EpisodeItem(
+                      episodeNumber: episode.episodeNumber,
                       imageUrl: episode.imageUrl,
                       title: episode.title,
                       dateTime: episode.dateTime,
