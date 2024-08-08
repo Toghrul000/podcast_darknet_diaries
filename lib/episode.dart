@@ -11,14 +11,13 @@ import 'package:path_provider/path_provider.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
-
-
 class DownloadProvider with ChangeNotifier {
   final Map<int, bool> _downloading = {};
   final Map<int, double> _downloadProgress = {};
   final Map<int, String> _imagePaths = {};
   final Map<int, String> _audioPaths = {};
   final Map<int, Completer<void>> _downloadCompleters = {};
+  final Map<int, http.Client> _httpClients = {}; // Keep track of HTTP clients
 
   bool isDownloading(int episodeNumber) => _downloading[episodeNumber] ?? false;
   double getDownloadProgress(int episodeNumber) => _downloadProgress[episodeNumber] ?? 0.0;
@@ -29,6 +28,7 @@ class DownloadProvider with ChangeNotifier {
     if (!_downloading.containsKey(episodeNumber) || !_downloading[episodeNumber]!) {
       _downloading[episodeNumber] = true;
       _downloadCompleters[episodeNumber] = Completer<void>();
+      _httpClients[episodeNumber] = http.Client(); // Initialize HTTP client
       _downloadProgress[episodeNumber] = 0.0;
       notifyListeners();
     }
@@ -48,20 +48,36 @@ class DownloadProvider with ChangeNotifier {
       _imagePaths[episodeNumber] = imagePath;
       _audioPaths[episodeNumber] = audioPath;
       _downloadCompleters[episodeNumber]?.complete();
+      _cleanUpAfterDownload(episodeNumber);
       notifyListeners();
     }
   }
 
-  void cancelDownload(int episodeNumber) async {
+  void cancelDownload(BuildContext context, int episodeNumber) async {
     if (_downloading[episodeNumber] ?? false) {
       _downloading[episodeNumber] = false;
       _downloadProgress[episodeNumber] = 0.0;
-      await _deleteFiles(episodeNumber);
-      _resetMetadata(episodeNumber);
-      _downloadCompleters[episodeNumber]?.complete();
-      _downloadCompleters.remove(episodeNumber);
+      _httpClients[episodeNumber]?.close(); // Cancel the download by closing the client
+      _cleanUpAfterDownload(episodeNumber);
       notifyListeners();
+
+      // Delete partially downloaded files and metadata
+      await _deleteFiles(episodeNumber);
+
+      // Show "Download cancelled" message
+      if(context.mounted){
+        _showSnackBarMessage(context, 'Download cancelled');
+      }
+      
+      // Complete the completer to unblock any awaiters
+      _downloadCompleters[episodeNumber]?.complete();
     }
+  }
+
+  void _cleanUpAfterDownload(int episodeNumber) {
+    // Clean up any state associated with the download
+    _downloadCompleters.remove(episodeNumber);
+    _httpClients.remove(episodeNumber);
   }
 
   Future<void> _deleteFiles(int episodeNumber) async {
@@ -79,12 +95,14 @@ class DownloadProvider with ChangeNotifier {
         await audioFile.delete();
       }
     }
+
+    // Reset metadata in SharedPreferences
+    _resetMetadata(episodeNumber);
   }
 
   void _resetMetadata(int episodeNumber) {
     _imagePaths.remove(episodeNumber);
     _audioPaths.remove(episodeNumber);
-    // Reset metadata in shared preferences
     SharedPreferences.getInstance().then((prefs) {
       prefs.remove('offline_ep_${episodeNumber}_title');
       prefs.remove('offline_ep_${episodeNumber}_dateTime');
@@ -114,53 +132,27 @@ class DownloadProvider with ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     List<String> downloads = prefs.getStringList('downloads') ?? [];
     if (!downloads.contains(episodeNumber.toString())) {
-      try {
-        if(context.mounted){
-          startDownload(episodeNumber);
-          await _saveEpisodeFilesWithProgress(context, episodeNumber, imageUrl, mp3Url, (progress) {
-            updateDownloadProgress(episodeNumber, progress);
-          });
+      if (context.mounted) {
+        startDownload(episodeNumber);
+        await _saveEpisodeFilesWithProgress(context, episodeNumber, imageUrl, mp3Url, (progress) {
+          updateDownloadProgress(episodeNumber, progress);
+        });
+        if(isDownloading(episodeNumber)){
           if (getImagePath(episodeNumber) != null && getAudioPath(episodeNumber) != null) {
             await saveEpisodeMetadata(episodeNumber.toString(), title, dateTime, getImagePath(episodeNumber)!, getAudioPath(episodeNumber)!);
           }
           completeDownload(episodeNumber, getImagePath(episodeNumber)!, getAudioPath(episodeNumber)!);
         }
-      } catch (e) {
-        if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('Something went wrong: $e'),
-              duration: const Duration(seconds: 5),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10.0),
-              ),
-            ),
-          );
-        }
       }
     } else {
       if (context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: const Text('Already in Downloads!'),
-            duration: const Duration(seconds: 5),
-            backgroundColor: Colors.red,
-            behavior: SnackBarBehavior.floating,
-            shape: RoundedRectangleBorder(
-              borderRadius: BorderRadius.circular(10.0),
-            ),
-          ),
-        );
+        _showSnackBarMessage(context, 'Already in Downloads!');
       }
     }
   }
 
   Future<void> _saveEpisodeFilesWithProgress(BuildContext context, int episodeNumber, String imageUrl, String audioUrl, Function(double) onProgress) async {
     final directory = await getApplicationDocumentsDirectory();
-
-    // Create directories if they don't exist
     final imgDir = Directory('${directory.path}/assets/img');
     if (!await imgDir.exists()) {
       await imgDir.create(recursive: true);
@@ -170,106 +162,68 @@ class DownloadProvider with ChangeNotifier {
     if (!await audioDir.exists()) {
       await audioDir.create(recursive: true);
     }
-    try {
-      if(context.mounted) {
-        // Save image with progress
-        final imagePath = '${directory.path}/assets/img/episode_$episodeNumber.jpg';
-        final imageFile = File(imagePath);
-        await _downloadFile(context, episodeNumber, imageUrl, imageFile);
-        updateImagePath(episodeNumber, imagePath);
-      }
-
-      if(context.mounted) {
-        // Save audio with progress
-        final audioPath = '${directory.path}/assets/audio/episode_$episodeNumber.mp3';
-        final audioFile = File(audioPath);
-        await _downloadFileWithProgress(context, episodeNumber, audioUrl, audioFile, onProgress);
-        updateAudioPath(episodeNumber, audioPath);
-      }
-    } catch (e) {
-      if (context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('$e'),
-              duration: const Duration(seconds: 5),
-              backgroundColor: Colors.red,
-              behavior: SnackBarBehavior.floating,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(10.0),
-              ),
-            ),
-          );
-        }
+    if (context.mounted) {
+      final imagePath = '${directory.path}/assets/img/episode_$episodeNumber.jpg';
+      final imageFile = File(imagePath);
+      await _downloadFile(context, episodeNumber, imageUrl, imageFile);
+      updateImagePath(episodeNumber, imagePath);
     }
 
+    if (context.mounted) {
+      final audioPath = '${directory.path}/assets/audio/episode_$episodeNumber.mp3';
+      final audioFile = File(audioPath);
+      await _downloadFileWithProgress(context, episodeNumber, audioUrl, audioFile, onProgress);
+      updateAudioPath(episodeNumber, audioPath);
+    }
   }
 
   Future<void> _downloadFile(BuildContext context, int episodeNumber, String url, File file) async {
-    final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
-    final fileSink = file.openWrite();
+    final client = _httpClients[episodeNumber];
+    if (client == null || !isDownloading(episodeNumber)) return;
+
     try {
-      await response.stream.listen((chunk) {
-        if (!isDownloading(episodeNumber)) {
-          throw Exception('Download cancelled');
+      final response = await client.send(http.Request('GET', Uri.parse(url)));
+      final fileSink = file.openWrite();
+      try {
+        await response.stream.listen((chunk) {
+          fileSink.add(chunk);
+        }).asFuture();
+      } finally {
+        if(isDownloading(episodeNumber)){
+          await fileSink.flush();
+          await fileSink.close();
         }
-        fileSink.add(chunk);
-      }).asFuture();
-    } 
-    // catch (e) {
-    //   if (context.mounted) {
-    //     ScaffoldMessenger.of(context).showSnackBar(
-    //       SnackBar(
-    //         content: Text('$e'),
-    //         duration: const Duration(seconds: 5),
-    //         backgroundColor: Colors.red,
-    //         behavior: SnackBarBehavior.floating,
-    //         shape: RoundedRectangleBorder(
-    //           borderRadius: BorderRadius.circular(10.0),
-    //         ),
-    //       ),
-    //     );
-    //   }
-    // } 
-    finally {
-      await fileSink.flush();
-      await fileSink.close();
+      }
+    } on http.ClientException {
+      return;
     }
+
   }
 
   Future<void> _downloadFileWithProgress(BuildContext context, int episodeNumber, String url, File file, Function(double) onProgress) async {
-    final response = await http.Client().send(http.Request('GET', Uri.parse(url)));
-    final contentLength = response.contentLength;
-    int bytesReceived = 0;
-    final fileSink = file.openWrite();
+    final client = _httpClients[episodeNumber];
+    if (client == null || !isDownloading(episodeNumber)) return;
     try {
-      await response.stream.map((chunk) {
-        if (!isDownloading(episodeNumber)) {
-          throw Exception('Download cancelled');
+      final response = await client.send(http.Request('GET', Uri.parse(url)));
+      final contentLength = response.contentLength;
+      int bytesReceived = 0;
+      final fileSink = file.openWrite();
+      try {
+        await response.stream.map((chunk) {
+          bytesReceived += chunk.length;
+          onProgress(bytesReceived / contentLength!);
+          return chunk;
+        }).pipe(fileSink);
+      } finally {
+        if(isDownloading(episodeNumber)){
+          await fileSink.flush();
+          await fileSink.close();
         }
-        bytesReceived += chunk.length;
-        onProgress(bytesReceived / contentLength!);
-        return chunk;
-      }).pipe(fileSink);
-    } 
-    // catch (e) {
-    //   if (context.mounted) {
-    //     ScaffoldMessenger.of(context).showSnackBar(
-    //       SnackBar(
-    //         content: Text('$e'),
-    //         duration: const Duration(seconds: 5),
-    //         backgroundColor: Colors.red,
-    //         behavior: SnackBarBehavior.floating,
-    //         shape: RoundedRectangleBorder(
-    //           borderRadius: BorderRadius.circular(10.0),
-    //         ),
-    //       ),
-    //     );
-    //   }
-    // } 
-    finally {
-      await fileSink.flush();
-      await fileSink.close();
+      }
+    } on http.ClientException {
+      return;
     }
+
   }
 
   Future<void> saveEpisodeMetadata(String episodeNumber, String title, String dateTime, String imagePath, String audioPath) async {
@@ -281,6 +235,21 @@ class DownloadProvider with ChangeNotifier {
     await prefs.setString('offline_ep_${episodeNumber}_dateTime', dateTime);
     await prefs.setString('offline_ep_${episodeNumber}_imagePath', imagePath);
     await prefs.setString('offline_ep_${episodeNumber}_audioPath', audioPath);
+  }
+
+  void _showSnackBarMessage(BuildContext context, String message) {
+    // You can move this method to the appropriate widget context or provider
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(message),
+        duration: const Duration(seconds: 5),
+        backgroundColor: Colors.red,
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(10.0),
+        ),
+      ),
+    );
   }
 }
 
@@ -576,7 +545,7 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.close, size: 50, color: Colors.white),
-                          onPressed: () => downloadProvider.cancelDownload(widget.episodeNumber),
+                          onPressed: () => downloadProvider.cancelDownload(context, widget.episodeNumber),
                         ),
                       ],
                     )
