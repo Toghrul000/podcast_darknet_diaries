@@ -1,265 +1,11 @@
-import 'dart:async';
-import 'package:http/http.dart' as http;
 import 'package:podcast_darknet_diaries/audio_player.dart';
+import 'package:podcast_darknet_diaries/downloads.dart';
 import 'package:podcast_darknet_diaries/favourites.dart';
 import 'package:provider/provider.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
-import 'dart:io';
-import 'package:path_provider/path_provider.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
-
-class DownloadProvider with ChangeNotifier {
-  final Map<int, bool> _downloading = {};
-  final Map<int, double> _downloadProgress = {};
-  final Map<int, String> _imagePaths = {};
-  final Map<int, String> _audioPaths = {};
-  final Map<int, Completer<void>> _downloadCompleters = {};
-  final Map<int, http.Client> _httpClients = {}; // Keep track of HTTP clients
-
-  bool isDownloading(int episodeNumber) => _downloading[episodeNumber] ?? false;
-  double getDownloadProgress(int episodeNumber) => _downloadProgress[episodeNumber] ?? 0.0;
-  String? getImagePath(int episodeNumber) => _imagePaths[episodeNumber];
-  String? getAudioPath(int episodeNumber) => _audioPaths[episodeNumber];
-
-  void startDownload(int episodeNumber) {
-    if (!_downloading.containsKey(episodeNumber) || !_downloading[episodeNumber]!) {
-      _downloading[episodeNumber] = true;
-      _downloadCompleters[episodeNumber] = Completer<void>();
-      _httpClients[episodeNumber] = http.Client(); // Initialize HTTP client
-      _downloadProgress[episodeNumber] = 0.0;
-      notifyListeners();
-    }
-  }
-
-  void updateDownloadProgress(int episodeNumber, double progress) {
-    if (_downloading[episodeNumber] ?? false) {
-      _downloadProgress[episodeNumber] = progress;
-      notifyListeners();
-    }
-  }
-
-  void completeDownload(int episodeNumber, String imagePath, String audioPath) {
-    if (_downloading[episodeNumber] ?? false) {
-      _downloading[episodeNumber] = false;
-      _downloadProgress[episodeNumber] = 1.0;
-      _imagePaths[episodeNumber] = imagePath;
-      _audioPaths[episodeNumber] = audioPath;
-      _downloadCompleters[episodeNumber]?.complete();
-      _cleanUpAfterDownload(episodeNumber);
-      notifyListeners();
-    }
-  }
-
-  void cancelDownload(BuildContext context, int episodeNumber) async {
-    if (_downloading[episodeNumber] ?? false) {
-      _downloading[episodeNumber] = false;
-      _downloadProgress[episodeNumber] = 0.0;
-      _httpClients[episodeNumber]?.close(); // Cancel the download by closing the client
-      _cleanUpAfterDownload(episodeNumber);
-      notifyListeners();
-
-      // Delete partially downloaded files and metadata
-      await _deleteFiles(episodeNumber);
-
-      // Show "Download cancelled" message
-      if(context.mounted){
-        _showSnackBarMessage(context, 'Download cancelled', Colors.red);
-      }
-      
-      // Complete the completer to unblock any awaiters
-      _downloadCompleters[episodeNumber]?.complete();
-    }
-  }
-
-  void _cleanUpAfterDownload(int episodeNumber) {
-    // Clean up any state associated with the download
-    _downloadCompleters.remove(episodeNumber);
-    _httpClients.remove(episodeNumber);
-  }
-
-  Future<void> _deleteFiles(int episodeNumber) async {
-    final imagePath = _imagePaths[episodeNumber];
-    final audioPath = _audioPaths[episodeNumber];
-    if (imagePath != null) {
-      final imageFile = File(imagePath);
-      if (await imageFile.exists()) {
-        await imageFile.delete();
-      }
-    }
-    if (audioPath != null) {
-      final audioFile = File(audioPath);
-      if (await audioFile.exists()) {
-        await audioFile.delete();
-      }
-    }
-
-    // Reset metadata in SharedPreferences
-    _resetMetadata(episodeNumber);
-  }
-
-  void _resetMetadata(int episodeNumber) {
-    _imagePaths.remove(episodeNumber);
-    _audioPaths.remove(episodeNumber);
-    SharedPreferences.getInstance().then((prefs) {
-      prefs.remove('offline_ep_${episodeNumber}_title');
-      prefs.remove('offline_ep_${episodeNumber}_dateTime');
-      prefs.remove('offline_ep_${episodeNumber}_imagePath');
-      prefs.remove('offline_ep_${episodeNumber}_audioPath');
-      List<String> downloads = prefs.getStringList('downloads') ?? [];
-      downloads.remove(episodeNumber.toString());
-      prefs.setStringList('downloads', downloads);
-    });
-  }
-
-  Future<void> awaitDownload(int episodeNumber) {
-    return _downloadCompleters[episodeNumber]?.future ?? Future.value();
-  }
-
-  void updateImagePath(int episodeNumber, String imagePath) {
-    _imagePaths[episodeNumber] = imagePath;
-    notifyListeners();
-  }
-
-  void updateAudioPath(int episodeNumber, String audioPath) {
-    _audioPaths[episodeNumber] = audioPath;
-    notifyListeners();
-  }
-
-  Future<void> downloadEpisode(BuildContext context, int episodeNumber, String title, String dateTime, String imageUrl, String mp3Url) async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> downloads = prefs.getStringList('downloads') ?? [];
-    if (!downloads.contains(episodeNumber.toString())) {
-      if (context.mounted) {
-        startDownload(episodeNumber);
-        await _saveEpisodeFilesWithProgress(context, episodeNumber, imageUrl, mp3Url, (progress) {
-          updateDownloadProgress(episodeNumber, progress);
-        });
-        if(isDownloading(episodeNumber)){
-          if (getImagePath(episodeNumber) != null && getAudioPath(episodeNumber) != null) {
-            await saveEpisodeMetadata(episodeNumber.toString(), title, dateTime, getImagePath(episodeNumber)!, getAudioPath(episodeNumber)!);
-          }
-
-          completeDownload(episodeNumber, getImagePath(episodeNumber)!, getAudioPath(episodeNumber)!);
-          if(context.mounted){
-            _showSnackBarMessage(context, 'Download finished', Colors.green);
-          }
-        }
-      }
-    } else {
-      if (context.mounted) {
-        _showSnackBarMessage(context, 'Already in Downloads!', Colors.red);
-      }
-    }
-  }
-
-  Future<void> _saveEpisodeFilesWithProgress(BuildContext context, int episodeNumber, String imageUrl, String audioUrl, Function(double) onProgress) async {
-    final directory = await getApplicationDocumentsDirectory();
-    final imgDir = Directory('${directory.path}/assets/img');
-    if (!await imgDir.exists()) {
-      await imgDir.create(recursive: true);
-    }
-
-    final audioDir = Directory('${directory.path}/assets/audio');
-    if (!await audioDir.exists()) {
-      await audioDir.create(recursive: true);
-    }
-    if (context.mounted) {
-      final imagePath = '${directory.path}/assets/img/episode_$episodeNumber.jpg';
-      final imageFile = File(imagePath);
-      await _downloadFile(context, episodeNumber, imageUrl, imageFile);
-      updateImagePath(episodeNumber, imagePath);
-    }
-
-    if (context.mounted) {
-      final audioPath = '${directory.path}/assets/audio/episode_$episodeNumber.mp3';
-      final audioFile = File(audioPath);
-      await _downloadFileWithProgress(context, episodeNumber, audioUrl, audioFile, onProgress);
-      updateAudioPath(episodeNumber, audioPath);
-    }
-  }
-
-  Future<void> _downloadFile(BuildContext context, int episodeNumber, String url, File file) async {
-    final client = _httpClients[episodeNumber];
-    if (client == null || !isDownloading(episodeNumber)) return;
-
-    try {
-      final response = await client.send(http.Request('GET', Uri.parse(url)));
-      final fileSink = file.openWrite();
-      try {
-        await response.stream.listen((chunk) {
-          fileSink.add(chunk);
-        }).asFuture();
-      } finally {
-        if(isDownloading(episodeNumber)){
-          await fileSink.flush();
-          await fileSink.close();
-        }
-      }
-    } on http.ClientException {
-      return;
-    }
-
-  }
-
-  Future<void> _downloadFileWithProgress(BuildContext context, int episodeNumber, String url, File file, Function(double) onProgress) async {
-    final client = _httpClients[episodeNumber];
-    if (client == null || !isDownloading(episodeNumber)) return;
-    try {
-      final response = await client.send(http.Request('GET', Uri.parse(url)));
-      final contentLength = response.contentLength;
-      int bytesReceived = 0;
-      final fileSink = file.openWrite();
-      try {
-        await response.stream.map((chunk) {
-          bytesReceived += chunk.length;
-          onProgress(bytesReceived / contentLength!);
-          return chunk;
-        }).pipe(fileSink);
-      } finally {
-        if(isDownloading(episodeNumber)){
-          await fileSink.flush();
-          await fileSink.close();
-        }
-      }
-    } on http.ClientException {
-      return;
-    }
-
-  }
-
-  Future<void> saveEpisodeMetadata(String episodeNumber, String title, String dateTime, String imagePath, String audioPath) async {
-    final prefs = await SharedPreferences.getInstance();
-    List<String> downloads = prefs.getStringList('downloads') ?? [];
-    downloads.add(episodeNumber);
-    await prefs.setStringList('downloads', downloads);
-    await prefs.setString('offline_ep_${episodeNumber}_title', title);
-    await prefs.setString('offline_ep_${episodeNumber}_dateTime', dateTime);
-    await prefs.setString('offline_ep_${episodeNumber}_imagePath', imagePath);
-    await prefs.setString('offline_ep_${episodeNumber}_audioPath', audioPath);
-  }
-
-  void _showSnackBarMessage(BuildContext context, String message, MaterialColor color) {
-    // You can move this method to the appropriate widget context or provider
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold),),
-        duration: const Duration(seconds: 5),
-        backgroundColor: color,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10.0),
-        ),
-      ),
-    );
-  }
-}
-
-
-
-
 
 
 class EpisodeItem extends StatelessWidget {
@@ -472,18 +218,18 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
   Widget build(BuildContext context) {
     final downloadProvider = Provider.of<DownloadProvider>(context);
     return Scaffold(
-      backgroundColor: Colors.black, // Set background color to black
+      backgroundColor: Colors.black, 
       appBar: AppBar(
-        backgroundColor: Colors.black, // Set AppBar background color to black
+        backgroundColor: Colors.black, 
         leading: IconButton(
-          icon: const Icon(Icons.home, color: Colors.white), // Home icon color to white
+          icon: const Icon(Icons.home, color: Colors.white), 
           onPressed: () {
             Navigator.popUntil(context, (route) => route.isFirst);
           },
         ),
         title: Text(
           widget.title,
-          style: const TextStyle(color: Colors.white), // AppBar title color to white
+          style: const TextStyle(color: Colors.white), 
         ),
       ),
       body: SingleChildScrollView(
@@ -514,7 +260,7 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
                     onPressed: toggleFavourite,
                   ),
                   IconButton(
-                    icon: const Icon(Icons.play_arrow_rounded, size: 64, color: Colors.white), // Play button color to white
+                    icon: const Icon(Icons.play_arrow_rounded, size: 64, color: Colors.white), 
                     onPressed: () {
                       Navigator.push(
                         context,
