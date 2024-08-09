@@ -66,7 +66,7 @@ class DownloadProvider with ChangeNotifier {
 
       // Show "Download cancelled" message
       if(context.mounted){
-        _showSnackBarMessage(context, 'Download cancelled');
+        _showSnackBarMessage(context, 'Download cancelled', Colors.red);
       }
       
       // Complete the completer to unblock any awaiters
@@ -141,12 +141,16 @@ class DownloadProvider with ChangeNotifier {
           if (getImagePath(episodeNumber) != null && getAudioPath(episodeNumber) != null) {
             await saveEpisodeMetadata(episodeNumber.toString(), title, dateTime, getImagePath(episodeNumber)!, getAudioPath(episodeNumber)!);
           }
+
           completeDownload(episodeNumber, getImagePath(episodeNumber)!, getAudioPath(episodeNumber)!);
+          if(context.mounted){
+            _showSnackBarMessage(context, 'Download finished', Colors.green);
+          }
         }
       }
     } else {
       if (context.mounted) {
-        _showSnackBarMessage(context, 'Already in Downloads!');
+        _showSnackBarMessage(context, 'Already in Downloads!', Colors.red);
       }
     }
   }
@@ -237,13 +241,13 @@ class DownloadProvider with ChangeNotifier {
     await prefs.setString('offline_ep_${episodeNumber}_audioPath', audioPath);
   }
 
-  void _showSnackBarMessage(BuildContext context, String message) {
+  void _showSnackBarMessage(BuildContext context, String message, MaterialColor color) {
     // You can move this method to the appropriate widget context or provider
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(message),
+        content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold),),
         duration: const Duration(seconds: 5),
-        backgroundColor: Colors.red,
+        backgroundColor: color,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(10.0),
@@ -267,6 +271,7 @@ class EpisodeItem extends StatelessWidget {
   final String mp3Url;
   final bool isFavourite;
   final VoidCallback onFavouriteToggle;
+  final BuildContext homeContext;
 
   const EpisodeItem({
     required this.imageUrl,
@@ -277,6 +282,7 @@ class EpisodeItem extends StatelessWidget {
     required this.episodeNumber,
     required this.isFavourite,
     required this.onFavouriteToggle,
+    required this.homeContext,
     super.key,
   });
 
@@ -300,6 +306,7 @@ class EpisodeItem extends StatelessWidget {
                     dateTime: dateTime,
                     content: content,
                     mp3Url: mp3Url,
+                    homeContext: homeContext,
                   ),
                 ),
               );
@@ -327,6 +334,7 @@ class EpisodeItem extends StatelessWidget {
                       content: content,
                       mp3Url: mp3Url,
                       episodeNumber: episodeNumber,
+                      homeContext: homeContext,
                     ),
                   ),
                 );
@@ -427,6 +435,7 @@ class EpisodeScreen extends StatefulWidget {
   final String content;
   final String mp3Url;
   final int episodeNumber;
+  final BuildContext homeContext;
 
   const EpisodeScreen({
     required this.imageUrl,
@@ -435,6 +444,7 @@ class EpisodeScreen extends StatefulWidget {
     required this.content,
     required this.mp3Url,
     required this.episodeNumber,
+    required this.homeContext,
     super.key,
   });
 
@@ -545,14 +555,14 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
                         ),
                         IconButton(
                           icon: const Icon(Icons.close, size: 50, color: Colors.white),
-                          onPressed: () => downloadProvider.cancelDownload(context, widget.episodeNumber),
+                          onPressed: () => downloadProvider.cancelDownload(widget.homeContext, widget.episodeNumber),
                         ),
                       ],
                     )
                     : IconButton(
                         icon: const Icon(Icons.download, size: 50, color: Colors.white),
                         onPressed: () {
-                          downloadProvider.downloadEpisode(context, widget.episodeNumber, widget.title, widget.dateTime, widget.imageUrl, widget.mp3Url);
+                          downloadProvider.downloadEpisode(widget.homeContext, widget.episodeNumber, widget.title, widget.dateTime, widget.imageUrl, widget.mp3Url);
                         },
                       ),
                 ],

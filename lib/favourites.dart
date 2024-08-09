@@ -208,6 +208,7 @@ class _FavouritesPageState extends State<FavouritesPage> {
                       content: episode.content,
                       mp3Url: episode.mp3Url,
                       isFavourite: episodeNumber != null && favouritesProvider.favourites.contains(episodeNumber),
+                      homeContext: context,
                       onFavouriteToggle: () {
                         if (episodeNumber != null) {
                           favouritesProvider.toggleFavourite(episodeNumber);

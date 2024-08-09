@@ -514,7 +514,7 @@ class _HomeState extends State<Home> {
             onPressed: () {
               showSearch(
                 context: context,
-                delegate: EpisodeSearchDelegate(episodes),
+                delegate: EpisodeSearchDelegate(episodes, context),
               );
             },
           ),
@@ -671,6 +671,7 @@ class _HomeState extends State<Home> {
                       onFavouriteToggle: () {
                         favouritesProvider.toggleFavourite(episodeNumber);
                       },
+                      homeContext: context,
                     );
                   },
                 );

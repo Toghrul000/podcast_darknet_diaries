@@ -5,8 +5,9 @@ import 'main.dart';
 
 class EpisodeSearchDelegate extends SearchDelegate<Episode?> {
   final List<Episode> episodes;
+  final BuildContext homeContext;
 
-  EpisodeSearchDelegate(this.episodes);
+  EpisodeSearchDelegate(this.episodes, this.homeContext);
 
   @override
   ThemeData appBarTheme(BuildContext context) {
@@ -83,6 +84,7 @@ class EpisodeSearchDelegate extends SearchDelegate<Episode?> {
                     dateTime: episode.dateTime,
                     content: episode.content,
                     mp3Url: episode.mp3Url,
+                    homeContext: homeContext,
                   ),
                 ),
               );
@@ -132,6 +134,7 @@ class EpisodeSearchDelegate extends SearchDelegate<Episode?> {
                     dateTime: episode.dateTime,
                     content: episode.content,
                     mp3Url: episode.mp3Url,
+                    homeContext: homeContext,
                   ),
                 ),
               );
