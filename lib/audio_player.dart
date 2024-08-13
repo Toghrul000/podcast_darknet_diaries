@@ -89,6 +89,8 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
             id: '${extractEpisodeNumber(widget.title)}',
             title: widget.title,
             artUri: Uri.file(widget.imageUrl),
+            displayTitle: widget.title,
+            displaySubtitle: widget.dateTime,
           ),
         );
       } else {
@@ -98,6 +100,8 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
             id: '${extractEpisodeNumber(widget.title)}',
             title: widget.title,
             artUri: Uri.parse(widget.imageUrl),
+            displayTitle: widget.title,
+            displaySubtitle: widget.dateTime,
           ),
         );
       }
@@ -210,8 +214,6 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
                     ),
                   ],
                 );
-
-
               }
             ),
             const SizedBox(height: 20),

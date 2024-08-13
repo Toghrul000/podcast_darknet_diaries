@@ -104,7 +104,7 @@ class EpisodeItem extends StatelessWidget {
                   const SizedBox(height: 8),
                   Text(
                     content,
-                    style: const TextStyle(fontSize: 16, color: Colors.white),
+                    style: const TextStyle(fontSize: 15, color: Colors.white),
                     overflow: TextOverflow.ellipsis,
                     maxLines: 2,
                   ),
@@ -324,6 +324,7 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
             const SizedBox(height: 16),
             MarkdownBody(
               data: widget.content,
+              selectable: true,
               styleSheet: MarkdownStyleSheet(
                 p: const TextStyle(fontSize: 18, color: Colors.white),
                 h1: const TextStyle(fontSize: 32, fontWeight: FontWeight.bold, color: Colors.white),

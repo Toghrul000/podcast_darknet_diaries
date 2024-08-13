@@ -345,6 +345,7 @@ class _HomeState extends State<Home> {
   Future<List<Episode>>? _episodeFuture;
   late List<Episode> episodes;
   bool _isNewestFirst = true;
+  double _progress = 0.0;
 
   @override
   void initState() {
@@ -399,6 +400,10 @@ class _HomeState extends State<Home> {
             );
 
             await _cacheEpisode(i, episode);
+          
+            setState(() {
+              _progress = (latestEpisode - i + 1) / latestEpisode;
+            });
           }
 
         }
@@ -450,6 +455,10 @@ class _HomeState extends State<Home> {
               );
 
               await _cacheEpisode(i, episode);
+              
+              setState(() {
+                _progress = (latestEpisode - i + 1) / latestEpisode;
+              });
             }
           }
           await prefs.setInt('lastEpisode', latestEpisode);
@@ -609,7 +618,6 @@ class _HomeState extends State<Home> {
                   _handleHardReFetch(); // Handle the re-fetching
                 },
               ),
-              // const Divider(color: Colors.white),
               ListTile(
                 leading: const Icon(Icons.info, color: Colors.white), 
                 title: const Text(
@@ -631,8 +639,26 @@ class _HomeState extends State<Home> {
         future: _episodeFuture,
         builder: (context, snapshot) {
           if (snapshot.connectionState == ConnectionState.waiting) {
-            return const Center(
-              child: CircularProgressIndicator(color: Colors.red,),
+            return Center(
+              child: Stack(
+              alignment: Alignment.center,
+              children: [
+                const CircularProgressIndicator(
+                  // value: _progress,
+                  color: Colors.red,
+                ),
+                Positioned(
+                  child: Text(
+                    '${(_progress * 100).toStringAsFixed(0)}%',
+                    style: const TextStyle(
+                      fontSize: 12,
+                      fontWeight: FontWeight.bold,
+                      color: Colors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
             );
           } else if (snapshot.hasError || _errorMessage != null) {
             Provider.of<FavouritesProvider>(context, listen: false).setErrorMessage('${_errorMessage ?? snapshot.error}');
