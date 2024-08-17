@@ -5,7 +5,137 @@ import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:podcast_darknet_diaries/image_item.dart';
+import 'package:provider/provider.dart';
 import 'package:rxdart/rxdart.dart';
+
+class AudioPlayerProvider with ChangeNotifier {
+  final AudioPlayer _audioPlayer = AudioPlayer();
+
+  AudioPlayerProvider() {
+    _audioPlayer.playingStream.listen((playing) {
+      _notifySafely(); // Notify listeners when playing state changes
+    });
+    _audioPlayer.currentIndexStream.listen((index) {
+      _notifySafely(); // Notify listeners when the current track changes
+    });
+  }
+
+  void _notifySafely() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      notifyListeners(); // Notify listeners after the frame is rendered
+    });
+  }
+
+
+  AudioPlayer get audioPlayer => _audioPlayer;
+
+  @override
+  void dispose() {
+    _audioPlayer.dispose();
+    super.dispose();
+  }
+}
+
+class MiniPlayer extends StatelessWidget {
+  final AudioPlayer audioPlayer;
+
+  const MiniPlayer({required this.audioPlayer, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      color: Colors.black87,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          StreamBuilder<SequenceState?>(
+            stream: audioPlayer.sequenceStateStream,
+            builder: (context, snapshot) {
+              final state = snapshot.data;
+              if (state?.sequence.isEmpty ?? true) {
+                return const SizedBox.shrink();
+              }
+              final currentTrack = state!.currentSource!.tag as MediaItem;
+              return ListTile(
+                leading: 
+                ImageItem(
+                  imageLink: currentTrack.artUri.toString(),
+                  height: 50,
+                  width: 50,
+                ),
+                title: Text(
+                  currentTrack.title,
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: StreamBuilder<PositionData>(
+                  stream: Rx.combineLatest3<Duration, Duration, Duration?, PositionData>(
+                    audioPlayer.positionStream,
+                    audioPlayer.bufferedPositionStream,
+                    audioPlayer.durationStream,
+                    (position, bufferedPosition, duration) => PositionData(
+                      position,
+                      bufferedPosition,
+                      duration ?? Duration.zero,
+                    ),
+                  ),
+                  builder: (context, snapshot) {
+                    final positionData = snapshot.data;
+                    return ProgressBar(
+                      progress: positionData?.position ?? Duration.zero,
+                      buffered: positionData?.bufferedPosition ?? Duration.zero,
+                      total: positionData?.duration ?? Duration.zero,
+                      progressBarColor: Colors.red,
+                      thumbColor: Colors.red,
+                      timeLabelTextStyle: const TextStyle(color: Colors.white),
+                      onSeek: audioPlayer.seek,
+                    );
+                  },
+                ),
+                trailing: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      icon: Icon(
+                        audioPlayer.playing ? Icons.pause : Icons.play_arrow,
+                        color: Colors.white,
+                      ),
+                      onPressed: () async {
+                        if (audioPlayer.playing) {
+                          await audioPlayer.pause();
+                        } else {
+                          await audioPlayer.play();
+                        }
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white),
+                      onPressed: () async {
+                        await audioPlayer.stop();
+                      },
+                    ),
+                  ],
+                ),
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => AudioPlayerScreen(
+                        imageUrl: currentTrack.artUri.toString(),
+                        title: currentTrack.title,
+                        dateTime: currentTrack.displaySubtitle ?? '',
+                        mp3Url: currentTrack.extras?['mp3Url'] ?? '',
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
 
 
 class PositionData {
@@ -58,17 +188,15 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
   @override
   void initState() {
     super.initState();
-    _audioPlayer = AudioPlayer();
+    _audioPlayer = Provider.of<AudioPlayerProvider>(context, listen: false).audioPlayer;
     _init();
 
   }
 
   int? extractEpisodeNumber(String episodeString) {
     RegExp regExp = RegExp(r'EP (\d+):');
-
     // Match the regular expression against the string
     Match? match = regExp.firstMatch(episodeString);
-
     if (match != null) {
       // Extract the first capturing group (the number)
       String episodeNumberStr = match.group(1)!;
@@ -80,32 +208,48 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
   }
 
   Future<void> _init() async {
-    final UriAudioSource audioSource;
     try {
-      if (File(widget.mp3Url).existsSync() && File(widget.imageUrl).existsSync()) {
-        audioSource = AudioSource.uri(
-          Uri.file(widget.mp3Url),
-          tag: MediaItem(
-            id: '${extractEpisodeNumber(widget.title)}',
-            title: widget.title,
-            artUri: Uri.file(widget.imageUrl),
-            displayTitle: widget.title,
-            displaySubtitle: widget.dateTime,
-          ),
-        );
+      // Check if the audio player already has an audio source set and it's playing the same audio.
+      if (_audioPlayer.audioSource == null || (_audioPlayer.audioSource?.sequence.first.tag as MediaItem).id != '${extractEpisodeNumber(widget.title)}') {
+        final UriAudioSource audioSource;
+
+        if (File(widget.mp3Url).existsSync() && File(widget.imageUrl).existsSync()) {
+          audioSource = AudioSource.uri(
+            Uri.file(widget.mp3Url),
+            tag: MediaItem(
+              id: '${extractEpisodeNumber(widget.title)}',
+              title: widget.title,
+              artUri: Uri.file(widget.imageUrl),
+              displayTitle: widget.title,
+              displaySubtitle: widget.dateTime,
+              extras: {
+                'mp3Url': widget.mp3Url,
+              },
+            ),
+          );
+        } else {
+          audioSource = AudioSource.uri(
+            Uri.parse(widget.mp3Url),
+            tag: MediaItem(
+              id: '${extractEpisodeNumber(widget.title)}',
+              title: widget.title,
+              artUri: Uri.parse(widget.imageUrl),
+              displayTitle: widget.title,
+              displaySubtitle: widget.dateTime,
+              extras: {
+                'mp3Url': widget.mp3Url,
+              },
+            ),
+          );
+        }
+
+        // Set the new audio source if needed
+        await _audioPlayer.setAudioSource(audioSource);
+        await _audioPlayer.play();
       } else {
-        audioSource = AudioSource.uri(
-          Uri.parse(widget.mp3Url),
-          tag: MediaItem(
-            id: '${extractEpisodeNumber(widget.title)}',
-            title: widget.title,
-            artUri: Uri.parse(widget.imageUrl),
-            displayTitle: widget.title,
-            displaySubtitle: widget.dateTime,
-          ),
-        );
+        // If the audio source is already set, just resume playing
+        await _audioPlayer.play();
       }
-      await _audioPlayer.setAudioSource(audioSource);
     } on SocketException catch (e) {
       _showErrorSnackBar('Network Error:$e');
     } on PlatformException catch (e) {
@@ -116,25 +260,21 @@ class _AudioPlayerScreenState extends State<AudioPlayerScreen> {
   }
 
   void _showErrorSnackBar(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        duration: const Duration(seconds: 5),
-        backgroundColor: Colors.red,
-        behavior: SnackBarBehavior.floating,
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(10.0),
+    if(mounted){
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 5),
+          backgroundColor: Colors.red,
+          behavior: SnackBarBehavior.floating,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(10.0),
+          ),
         ),
-      ),
-    );
-  }
+      );
+    }
 
-  @override
-  void dispose() {
-    _audioPlayer.dispose();
-    super.dispose();
   }
-
 
   @override
   Widget build(BuildContext context) {

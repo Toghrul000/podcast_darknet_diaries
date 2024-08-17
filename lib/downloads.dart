@@ -1,3 +1,5 @@
+import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:podcast_darknet_diaries/audio_player.dart';
 import 'package:podcast_darknet_diaries/image_item.dart';
@@ -298,6 +300,61 @@ class DownloadsEpisodeItem extends StatelessWidget {
     );
   }
 
+  void _playAudio(BuildContext context) async {
+    if(context.mounted){
+      final audioPlayerProvider = Provider.of<AudioPlayerProvider>(context, listen: false);
+      final audioPlayer = audioPlayerProvider.audioPlayer;
+      try {
+        final UriAudioSource audioSource;
+        if (File(audioPath).existsSync() && File(imagePath).existsSync()) {
+          audioSource = AudioSource.uri(
+            Uri.file(audioPath),
+            tag: MediaItem(
+              id: episodeNumber,
+              title: title,
+              artUri: Uri.file(imagePath),
+              displayTitle: title,
+              displaySubtitle: dateTime,
+              extras: {
+                'mp3Url': audioPath,
+              },
+            ),
+          );
+        } else {
+          audioSource = AudioSource.uri(
+            Uri.parse(audioPath),
+            tag: MediaItem(
+              id: episodeNumber,
+              title: title,
+              artUri: Uri.parse(imagePath),
+              displayTitle: title,
+              displaySubtitle: dateTime,
+              extras: {
+                'mp3Url': audioPath,
+              },           
+            ),
+          );
+        }
+        await audioPlayer.setAudioSource(audioSource);
+        await audioPlayer.play();
+      } catch (e) {
+        if (context.mounted){
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Something went wrong: $e'),
+              duration: const Duration(seconds: 5),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10.0),
+              ),
+            ),
+          );
+        }
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -345,7 +402,7 @@ class DownloadsEpisodeItem extends StatelessWidget {
                   color: Colors.white,
                   size: 30,
                 ),
-                onPressed: () => _navigateToAudioPlayer(context),
+                onPressed: () => _playAudio(context),
               ),
               IconButton(
                 icon: const Icon(Icons.delete),

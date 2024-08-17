@@ -15,15 +15,18 @@ class ImageItem extends StatelessWidget {
   });
 
   bool _isLocalFile(String path) {
-    // Check if the path is a local file path
     return File(path).existsSync();
   }
 
   @override
   Widget build(BuildContext context) {
-    if (_isLocalFile(imageLink)) {
+    String path = imageLink;
+    if (path.startsWith('file://')) {
+      path = path.replaceFirst('file://', '');
+    }
+    if (_isLocalFile(path)) {
       return Image.file(
-        File(imageLink),
+        File(path),
         height: height,
         width: width,
         fit: BoxFit.cover,

@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'package:just_audio/just_audio.dart';
+import 'package:just_audio_background/just_audio_background.dart';
 import 'package:podcast_darknet_diaries/audio_player.dart';
 import 'package:podcast_darknet_diaries/downloads.dart';
 import 'package:podcast_darknet_diaries/favourites.dart';
@@ -31,6 +34,62 @@ class EpisodeItem extends StatelessWidget {
     required this.homeContext,
     super.key,
   });
+
+
+  void playAudio(BuildContext context) async {
+    if(context.mounted){
+      final audioPlayerProvider = Provider.of<AudioPlayerProvider>(context, listen: false);
+      final audioPlayer = audioPlayerProvider.audioPlayer;
+      try {
+        final UriAudioSource audioSource;
+        if (File(mp3Url).existsSync() && File(imageUrl).existsSync()) {
+          audioSource = AudioSource.uri(
+            Uri.file(mp3Url),
+            tag: MediaItem(
+              id: '$episodeNumber',
+              title: title,
+              artUri: Uri.file(imageUrl),
+              displayTitle: title,
+              displaySubtitle: dateTime,
+              extras: {
+                'mp3Url': mp3Url,
+              },
+            ),
+          );
+        } else {
+          audioSource = AudioSource.uri(
+            Uri.parse(mp3Url),
+            tag: MediaItem(
+              id: '$episodeNumber',
+              title: title,
+              artUri: Uri.parse(imageUrl),
+              displayTitle: title,
+              displaySubtitle: dateTime,
+              extras: {
+                'mp3Url': mp3Url,
+              },           
+            ),
+          );
+        }
+        await audioPlayer.setAudioSource(audioSource);
+        await audioPlayer.play();
+      } catch (e) {
+        if (context.mounted){
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('Something went wrong: $e'),
+              duration: const Duration(seconds: 5),
+              backgroundColor: Colors.red,
+              behavior: SnackBarBehavior.floating,
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10.0),
+              ),
+            ),
+          );
+        }
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -126,19 +185,7 @@ class EpisodeItem extends StatelessWidget {
                   Icons.play_arrow_rounded,
                   color: Colors.white,
                 ),
-                onPressed: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AudioPlayerScreen(
-                        imageUrl: imageUrl,
-                        title: title,
-                        dateTime: dateTime,
-                        mp3Url: mp3Url,
-                      ),
-                    ),
-                  );
-                },
+                onPressed: () => playAudio(context),
               ),
               downloadProvider.isDownloading(episodeNumber)
                 ? Stack(
@@ -214,6 +261,61 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
     });
   }
 
+  void _playAudio(BuildContext context) async {
+      if(context.mounted){
+        final audioPlayerProvider = Provider.of<AudioPlayerProvider>(context, listen: false);
+        final audioPlayer = audioPlayerProvider.audioPlayer;
+        try {
+          final UriAudioSource audioSource;
+          if (File(widget.mp3Url).existsSync() && File(widget.imageUrl).existsSync()) {
+            audioSource = AudioSource.uri(
+              Uri.file(widget.mp3Url),
+              tag: MediaItem(
+                id: '${widget.episodeNumber}',
+                title: widget.title,
+                artUri: Uri.file(widget.imageUrl),
+                displayTitle: widget.title,
+                displaySubtitle: widget.dateTime,
+                extras: {
+                  'mp3Url': widget.mp3Url,
+                },
+              ),
+            );
+          } else {
+            audioSource = AudioSource.uri(
+              Uri.parse(widget.mp3Url),
+              tag: MediaItem(
+                id: '${widget.episodeNumber}',
+                title: widget.title,
+                artUri: Uri.parse(widget.imageUrl),
+                displayTitle: widget.title,
+                displaySubtitle: widget.dateTime,
+                extras: {
+                  'mp3Url': widget.mp3Url,
+                },           
+              ),
+            );
+          }
+          await audioPlayer.setAudioSource(audioSource);
+          await audioPlayer.play();
+        } catch (e) {
+          if (context.mounted){
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Something went wrong: $e'),
+                duration: const Duration(seconds: 5),
+                backgroundColor: Colors.red,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10.0),
+                ),
+              ),
+            );
+          }
+        }
+      }
+  }
+
   @override
   Widget build(BuildContext context) {
     final downloadProvider = Provider.of<DownloadProvider>(context);
@@ -261,19 +363,7 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
                   ),
                   IconButton(
                     icon: const Icon(Icons.play_arrow_rounded, size: 64, color: Colors.white), 
-                    onPressed: () {
-                      Navigator.push(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => AudioPlayerScreen(
-                            imageUrl: widget.imageUrl,
-                            title: widget.title,
-                            dateTime: widget.dateTime,
-                            mp3Url: widget.mp3Url,
-                          ),
-                        ),
-                      );
-                    },
+                    onPressed: () => _playAudio(context),
                   ),
                   downloadProvider.isDownloading(widget.episodeNumber)
                     ? 

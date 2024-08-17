@@ -2,6 +2,8 @@ import 'dart:convert';
 import 'package:html/dom.dart' as html;
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as html_parser;
+import 'package:just_audio/just_audio.dart';
+import 'package:podcast_darknet_diaries/audio_player.dart';
 import 'package:podcast_darknet_diaries/downloads.dart';
 import 'package:podcast_darknet_diaries/episode.dart';
 import 'package:podcast_darknet_diaries/episode_search_delegate.dart';
@@ -25,6 +27,7 @@ Future<void> main() async {
   runApp(
     MultiProvider(
       providers: [
+        ChangeNotifierProvider(create: (context) => AudioPlayerProvider()),
         ChangeNotifierProvider(create: (context) => FavouritesProvider()..loadFavourites()),
         ChangeNotifierProvider(create: (context) => DownloadProvider()),
       ],
@@ -351,6 +354,12 @@ class _HomeState extends State<Home> {
   void initState() {
     super.initState();
     _episodeFuture = _initializeEpisodes();
+
+    context.read<AudioPlayerProvider>().audioPlayer.playingStream.listen((playing) {
+      setState(() {
+        // This will trigger the UI update when the playing state changes
+      });
+    });
   }
 
   void reFetch() {
@@ -635,76 +644,112 @@ class _HomeState extends State<Home> {
           ),
         ),
       ),
-      body: FutureBuilder<List<Episode>>(
-        future: _episodeFuture,
-        builder: (context, snapshot) {
-          if (snapshot.connectionState == ConnectionState.waiting) {
-            return Center(
-              child: Stack(
-              alignment: Alignment.center,
-              children: [
-                const CircularProgressIndicator(
-                  // value: _progress,
-                  color: Colors.red,
-                ),
-                Positioned(
+      body: 
+      Stack(
+        children: [
+          FutureBuilder<List<Episode>>(
+            future: _episodeFuture,
+            builder: (context, snapshot) {
+              if (snapshot.connectionState == ConnectionState.waiting) {
+                return Center(
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Stack(
+                        alignment: Alignment.center,
+                        children: [
+                          const CircularProgressIndicator(
+                            // value: _progress,
+                            color: Colors.red,
+                          ),
+                          Positioned(
+                            child: Text(
+                              '${(_progress * 100).toStringAsFixed(0)}%',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.bold,
+                                color: Colors.white,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 20),
+                      const Text(
+                        'Fetching episodes...',
+                        style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white,
+                        ),
+                      )
+                    ],
+                  )
+                );
+              } else if (snapshot.hasError || _errorMessage != null) {
+                Provider.of<FavouritesProvider>(context, listen: false).setErrorMessage('${_errorMessage ?? snapshot.error}');
+                return Center(
                   child: Text(
-                    '${(_progress * 100).toStringAsFixed(0)}%',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.white,
-                    ),
+                    'Error: ${_errorMessage ?? snapshot.error}',
+                    style: const TextStyle(color: Colors.red),
                   ),
-                ),
-              ],
-            ),
-            );
-          } else if (snapshot.hasError || _errorMessage != null) {
-            Provider.of<FavouritesProvider>(context, listen: false).setErrorMessage('${_errorMessage ?? snapshot.error}');
-            return Center(
-              child: Text(
-                'Error: ${_errorMessage ?? snapshot.error}',
-                style: const TextStyle(color: Colors.red),
-              ),
-            );
-          } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
-            return const Center(
-              child: Text(
-                'No episodes available.',
-                style: TextStyle(color: Colors.white),
-              ),
-            );
-          } else {
-            List<Episode> episodes = snapshot.data!;
-            return Consumer<FavouritesProvider>(
-              builder: (context, favouritesProvider, child) {
-                return ListView.builder(
-                  itemCount: episodes.length,
-                  itemBuilder: (context, index) {
-                    Episode episode = episodes[index];
-                    int episodeNumber = episode.episodeNumber;
-                    bool isFavourite = favouritesProvider.favourites.contains(episodeNumber);
+                );
+              } else if (!snapshot.hasData || snapshot.data!.isEmpty) {
+                return const Center(
+                  child: Text(
+                    'No episodes available.',
+                    style: TextStyle(color: Colors.white),
+                  ),
+                );
+              } else {
+                List<Episode> episodes = snapshot.data!;
+                return Consumer<FavouritesProvider>(
+                  builder: (context, favouritesProvider, child) {
+                    return ListView.builder(
+                      itemCount: episodes.length,
+                      itemBuilder: (context, index) {
+                        Episode episode = episodes[index];
+                        int episodeNumber = episode.episodeNumber;
+                        bool isFavourite = favouritesProvider.favourites.contains(episodeNumber);
 
-                    return EpisodeItem(
-                      episodeNumber: episodeNumber,
-                      imageUrl: episode.imageUrl,
-                      title: episode.title,
-                      dateTime: episode.dateTime,
-                      content: episode.content,
-                      mp3Url: episode.mp3Url,
-                      isFavourite: isFavourite,
-                      onFavouriteToggle: () {
-                        favouritesProvider.toggleFavourite(episodeNumber);
+                        return EpisodeItem(
+                          episodeNumber: episodeNumber,
+                          imageUrl: episode.imageUrl,
+                          title: episode.title,
+                          dateTime: episode.dateTime,
+                          content: episode.content,
+                          mp3Url: episode.mp3Url,
+                          isFavourite: isFavourite,
+                          onFavouriteToggle: () {
+                            favouritesProvider.toggleFavourite(episodeNumber);
+                          },
+                          homeContext: context,
+                        );
                       },
-                      homeContext: context,
                     );
                   },
                 );
-              },
-            );
-          }
-        },
+              }
+            },
+          ),
+          Consumer<AudioPlayerProvider>(
+            builder: (context, audioProvider, child) {
+              final audioPlayer = audioProvider.audioPlayer;
+              final hasAudioSource = audioPlayer.currentIndex != null;
+              bool isStopped = !audioProvider.audioPlayer.playing && audioProvider.audioPlayer.processingState == ProcessingState.idle;
+              if (hasAudioSource && !isStopped) {
+                return Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: MiniPlayer(audioPlayer: audioPlayer),
+                );
+              } else {
+                return const SizedBox.shrink();
+              }
+            },
+          ),
+        ],
       ),
     );
   }
