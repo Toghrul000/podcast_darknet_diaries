@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'package:html/dom.dart' as html;
 import 'package:http/http.dart' as http;
 import 'package:html/parser.dart' as html_parser;
@@ -24,6 +25,8 @@ Future<void> main() async {
     androidNotificationChannelName: 'Audio playback',
     androidNotificationOngoing: true,
   );
+
+  
   runApp(
     MultiProvider(
       providers: [
@@ -82,6 +85,7 @@ class MyApp extends StatelessWidget {
     );
   }
 }
+
 
 class Home extends StatefulWidget {
   const Home({super.key});
@@ -354,6 +358,7 @@ class _HomeState extends State<Home> {
   void initState() {
     super.initState();
     _episodeFuture = _initializeEpisodes();
+    _loadLastPlayed();
 
     context.read<AudioPlayerProvider>().audioPlayer.playingStream.listen((playing) {
       setState(() {
@@ -361,6 +366,7 @@ class _HomeState extends State<Home> {
       });
     });
   }
+
 
   void reFetch() {
     setState(() {
@@ -376,6 +382,79 @@ class _HomeState extends State<Home> {
       _errorMessage = null; // Reset the error message
       _episodeFuture = _hardReFetch();
     });
+  }
+  
+
+  Future<void> _loadLastPlayed() async{
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    print("here 1");
+    if((prefs.getBool('save') ?? false)) {
+      print("here 2");
+      // Load the last played audio source and position
+      final prefs = await SharedPreferences.getInstance();
+      final lastPlayedUrl = prefs.getString('lastPlayedUrl');
+      final lastPlayedImageUrl = prefs.getString('lastPlayedImageUrl');
+      final lastPlayedTitle = prefs.getString('lastPlayedTitle');
+      final lastPlayedDateTime = prefs.getString('lastPlayedDateTime');
+      final lastPlayedPosition = prefs.getInt('lastPlayedPosition') ?? 0;
+
+      if (lastPlayedUrl != null && lastPlayedImageUrl != null && lastPlayedTitle != null) {
+        print("here 3");
+        if(mounted){
+          final audioPlayerProvider = Provider.of<AudioPlayerProvider>(context, listen: false);
+          final audioPlayer = audioPlayerProvider.audioPlayer;
+          try {
+            final UriAudioSource audioSource;
+            if (File(lastPlayedUrl).existsSync() && File(lastPlayedImageUrl).existsSync()) {
+              audioSource = AudioSource.uri(
+                Uri.file(lastPlayedUrl),
+                tag: MediaItem(
+                  id: '${extractEpisodeNumber(lastPlayedTitle)}',
+                  title: lastPlayedTitle,
+                  artUri: Uri.file(lastPlayedImageUrl),
+                  displayTitle: lastPlayedTitle,
+                  displaySubtitle: lastPlayedDateTime,
+                  extras: {
+                    'mp3Url': lastPlayedUrl,
+                  },
+                ),
+              );
+            } else {
+              audioSource = AudioSource.uri(
+                Uri.parse(lastPlayedUrl),
+                tag: MediaItem(
+                  id: '${extractEpisodeNumber(lastPlayedTitle)}',
+                  title: lastPlayedTitle,
+                  artUri: Uri.parse(lastPlayedImageUrl),
+                  displayTitle: lastPlayedTitle,
+                  displaySubtitle: lastPlayedDateTime,
+                  extras: {
+                    'mp3Url': lastPlayedUrl,
+                  },           
+                ),
+              );
+            }
+            await audioPlayer.setAudioSource(audioSource);
+            await audioPlayer.seek(Duration(milliseconds: lastPlayedPosition));
+          } catch (e) {
+            if (mounted){
+              ScaffoldMessenger.of(context).showSnackBar(
+                SnackBar(
+                  content: Text('Something went wrong: $e'),
+                  duration: const Duration(seconds: 5),
+                  backgroundColor: Colors.red,
+                  behavior: SnackBarBehavior.floating,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(10.0),
+                  ),
+                ),
+              );
+            }
+          }
+
+        }
+      }
+    }
   }
 
   Future<List<Episode>> _hardReFetch() async {
@@ -471,8 +550,7 @@ class _HomeState extends State<Home> {
             }
           }
           await prefs.setInt('lastEpisode', latestEpisode);
-        }
-        // List<Episode> episodes = await _getCachedEpisodes();
+        } 
         episodes = await _getCachedEpisodes();
         return _isNewestFirst ? episodes.reversed.toList() : episodes;
       }
@@ -565,7 +643,7 @@ class _HomeState extends State<Home> {
                       onTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => const DownloadsPage()),
+                          MaterialPageRoute(builder: (context) => const PersistentMiniPlayerWrapper(child: DownloadsPage())),
                         );
                       },
                     ),
@@ -578,7 +656,7 @@ class _HomeState extends State<Home> {
                       onTap: () {
                         Navigator.push(
                           context,
-                          MaterialPageRoute(builder: (context) => const FavouritesPage()),
+                          MaterialPageRoute(builder: (context) => const PersistentMiniPlayerWrapper(child: FavouritesPage())),
                         );
                       },
                     ),
@@ -659,7 +737,6 @@ class _HomeState extends State<Home> {
                         alignment: Alignment.center,
                         children: [
                           const CircularProgressIndicator(
-                            // value: _progress,
                             color: Colors.red,
                           ),
                           Positioned(

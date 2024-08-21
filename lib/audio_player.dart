@@ -7,18 +7,69 @@ import 'package:just_audio_background/just_audio_background.dart';
 import 'package:podcast_darknet_diaries/image_item.dart';
 import 'package:provider/provider.dart';
 import 'package:rxdart/rxdart.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
-class AudioPlayerProvider with ChangeNotifier {
+class PersistentMiniPlayerWrapper extends StatelessWidget {
+  final Widget child;
+
+  const PersistentMiniPlayerWrapper({required this.child, super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      body: Stack(
+        children: [
+          child, // The main content of the screen (page)
+          Consumer<AudioPlayerProvider>(
+            builder: (context, audioProvider, child) {
+              final audioPlayer = audioProvider.audioPlayer;
+              final hasAudioSource = audioPlayer.currentIndex != null;
+              bool isStopped = !audioProvider.audioPlayer.playing && audioProvider.audioPlayer.processingState == ProcessingState.idle;
+              if (hasAudioSource && !isStopped) {
+                return Positioned(
+                  bottom: 0,
+                  left: 0,
+                  right: 0,
+                  child: MiniPlayer(audioPlayer: audioPlayer),
+                );
+              } else {
+                return const SizedBox.shrink();
+              }
+            },
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class AudioPlayerProvider with ChangeNotifier, WidgetsBindingObserver {
   final AudioPlayer _audioPlayer = AudioPlayer();
 
   AudioPlayerProvider() {
+    WidgetsBinding.instance.addObserver(this);
+    
     _audioPlayer.playingStream.listen((playing) {
       _notifySafely(); // Notify listeners when playing state changes
     });
     _audioPlayer.currentIndexStream.listen((index) {
       _notifySafely(); // Notify listeners when the current track changes
     });
+
+    // Listen for playback events to handle stop or completion
+    // _audioPlayer.playbackEventStream.listen((event) {
+    //   if (event.processingState == ProcessingState.completed ||
+    //       event.processingState == ProcessingState.idle) {
+    //     _handleStop(); 
+    //   }
+    // });
   }
+
+  // void _handleStop(){
+  //   print("STOOOPPPING");
+  //   saveCurrentPosition();
+
+  // }
 
   void _notifySafely() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -26,12 +77,48 @@ class AudioPlayerProvider with ChangeNotifier {
     });
   }
 
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.inactive || 
+        state == AppLifecycleState.paused || 
+        state == AppLifecycleState.resumed) {
+      return;
+    }
+    if (state == AppLifecycleState.resumed) return;
+    if (state == AppLifecycleState.detached) {
+      saveCurrentPosition(); 
+    }
+  }
+
 
   AudioPlayer get audioPlayer => _audioPlayer;
 
+  Future<void> saveCurrentPosition() async {
+    final prefs = await SharedPreferences.getInstance();
+    if((prefs.getBool('save') ?? false)){
+      final sequenceState = await _audioPlayer.sequenceStateStream.first;
+      if (sequenceState != null) {
+        final currentSource = sequenceState.currentSource;
+        if (currentSource != null) {
+          final mediaItem = currentSource.tag as MediaItem;
+          await prefs.setString('lastPlayedUrl', mediaItem.extras?['mp3Url'] ?? '');
+          await prefs.setString('lastPlayedImageUrl', mediaItem.artUri?.toString() ?? '');
+          await prefs.setString('lastPlayedTitle', mediaItem.title);
+          await prefs.setString('lastPlayedDateTime', mediaItem.displaySubtitle ?? '');
+          await prefs.setInt('lastPlayedPosition', _audioPlayer.position.inMilliseconds);
+        }
+      }
+
+    }
+  }
+
   @override
-  void dispose() {
-    _audioPlayer.dispose();
+  Future<void> dispose() async {
+    WidgetsBinding.instance.removeObserver(this);
+    // saveCurrentPosition();
+    await _audioPlayer.dispose();
+    _notifySafely();
+
     super.dispose();
   }
 }
@@ -39,7 +126,20 @@ class AudioPlayerProvider with ChangeNotifier {
 class MiniPlayer extends StatelessWidget {
   final AudioPlayer audioPlayer;
 
-  const MiniPlayer({required this.audioPlayer, super.key});
+  MiniPlayer({required this.audioPlayer, super.key}) {
+    _setSaveTrue();
+  }
+
+  Future<void> _setSaveFalse() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('save', false);
+  }
+
+
+  Future<void> _setSaveTrue() async {
+    SharedPreferences prefs = await SharedPreferences.getInstance();
+    await prefs.setBool('save', true);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -110,6 +210,7 @@ class MiniPlayer extends StatelessWidget {
                     IconButton(
                       icon: const Icon(Icons.close, color: Colors.white),
                       onPressed: () async {
+                        await _setSaveFalse();
                         await audioPlayer.stop();
                       },
                     ),
