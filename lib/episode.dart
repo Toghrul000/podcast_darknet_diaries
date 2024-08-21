@@ -11,7 +11,7 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 
-class EpisodeItem extends StatelessWidget {
+class EpisodeItem extends StatefulWidget {
   final String imageUrl;
   final String title;
   final String dateTime;
@@ -35,45 +35,68 @@ class EpisodeItem extends StatelessWidget {
     super.key,
   });
 
+  @override
+  State<EpisodeItem> createState() => _EpisodeItemState();
+}
 
-  void playAudio(BuildContext context) async {
+class _EpisodeItemState extends State<EpisodeItem> {
+
+  bool isLoading = false;
+
+  void _onPlayPressed(BuildContext context) async {
+    setState(() {
+      isLoading = true;
+    });
+    await playAudio(context);
+  }
+
+
+
+  Future<void> playAudio(BuildContext context) async {
     if(context.mounted){
       final audioPlayerProvider = Provider.of<AudioPlayerProvider>(context, listen: false);
       final audioPlayer = audioPlayerProvider.audioPlayer;
       try {
         final UriAudioSource audioSource;
-        if (File(mp3Url).existsSync() && File(imageUrl).existsSync()) {
+        if (File(widget.mp3Url).existsSync() && File(widget.imageUrl).existsSync()) {
           audioSource = AudioSource.uri(
-            Uri.file(mp3Url),
+            Uri.file(widget.mp3Url),
             tag: MediaItem(
-              id: '$episodeNumber',
-              title: title,
-              artUri: Uri.file(imageUrl),
-              displayTitle: title,
-              displaySubtitle: dateTime,
+              id: '${widget.episodeNumber}',
+              title: widget.title,
+              artUri: Uri.file(widget.imageUrl),
+              displayTitle: widget.title,
+              displaySubtitle: widget.dateTime,
               extras: {
-                'mp3Url': mp3Url,
+                'mp3Url': widget.mp3Url,
               },
             ),
           );
         } else {
           audioSource = AudioSource.uri(
-            Uri.parse(mp3Url),
+            Uri.parse(widget.mp3Url),
             tag: MediaItem(
-              id: '$episodeNumber',
-              title: title,
-              artUri: Uri.parse(imageUrl),
-              displayTitle: title,
-              displaySubtitle: dateTime,
+              id: '${widget.episodeNumber}',
+              title: widget.title,
+              artUri: Uri.parse(widget.imageUrl),
+              displayTitle: widget.title,
+              displaySubtitle: widget.dateTime,
               extras: {
-                'mp3Url': mp3Url,
+                'mp3Url': widget.mp3Url,
               },           
             ),
           );
         }
         await audioPlayer.setAudioSource(audioSource);
+        setState(() {
+          isLoading = false;
+        });
+
         await audioPlayer.play();
       } catch (e) {
+        setState(() {
+          isLoading = false;
+        });
         if (context.mounted){
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -101,23 +124,25 @@ class EpisodeItem extends StatelessWidget {
         children: [
           GestureDetector(
             onTap: () {
-              Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => EpisodeScreen(
-                    episodeNumber: episodeNumber,
-                    imageUrl: imageUrl,
-                    title: title,
-                    dateTime: dateTime,
-                    content: content,
-                    mp3Url: mp3Url,
-                    homeContext: homeContext,
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => PersistentMiniPlayerWrapper(
+                      child: EpisodeScreen(
+                        imageUrl: widget.imageUrl,
+                        title: widget.title,
+                        dateTime: widget.dateTime,
+                        content: widget.content,
+                        mp3Url: widget.mp3Url,
+                        episodeNumber: widget.episodeNumber,
+                        homeContext: widget.homeContext,
+                    ),
+                    )
                   ),
-                ),
-              );
+                );
             },
             child: CachedNetworkImage(
-              imageUrl: imageUrl,
+              imageUrl: widget.imageUrl,
               placeholder: (context, url) => const CircularProgressIndicator(color: Colors.red,),
               errorWidget: (context, url, error) => const Icon(Icons.error),
               height: 105,
@@ -132,15 +157,17 @@ class EpisodeItem extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(
-                    builder: (context) => EpisodeScreen(
-                      imageUrl: imageUrl,
-                      title: title,
-                      dateTime: dateTime,
-                      content: content,
-                      mp3Url: mp3Url,
-                      episodeNumber: episodeNumber,
-                      homeContext: homeContext,
+                    builder: (context) => PersistentMiniPlayerWrapper(
+                      child: EpisodeScreen(
+                        imageUrl: widget.imageUrl,
+                        title: widget.title,
+                        dateTime: widget.dateTime,
+                        content: widget.content,
+                        mp3Url: widget.mp3Url,
+                        episodeNumber: widget.episodeNumber,
+                        homeContext: widget.homeContext,
                     ),
+                    )
                   ),
                 );
               },
@@ -148,7 +175,7 @@ class EpisodeItem extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    title,
+                    widget.title,
                     style: const TextStyle(
                       fontSize: 18,
                       fontWeight: FontWeight.bold,
@@ -157,12 +184,12 @@ class EpisodeItem extends StatelessWidget {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    dateTime,
+                    widget.dateTime,
                     style: const TextStyle(fontSize: 14, color: Colors.grey),
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    content,
+                    widget.content,
                     style: const TextStyle(fontSize: 15, color: Colors.white),
                     overflow: TextOverflow.ellipsis,
                     maxLines: 2,
@@ -175,29 +202,40 @@ class EpisodeItem extends StatelessWidget {
             children: [
               IconButton(
                 icon: Icon(
-                  isFavourite ? Icons.favorite : Icons.favorite_border,
+                  widget.isFavourite ? Icons.favorite : Icons.favorite_border,
                   color: Colors.white,
                 ),
-                onPressed: onFavouriteToggle,
+                onPressed: widget.onFavouriteToggle,
               ),
+              isLoading 
+              ? 
+              const SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  color: Colors.red,
+                  strokeWidth: 3,
+                ),
+              )
+              :
               IconButton(
                 icon: const Icon(
                   Icons.play_arrow_rounded,
                   color: Colors.white,
                 ),
-                onPressed: () => playAudio(context),
+                onPressed: () => _onPlayPressed(context),
               ),
-              downloadProvider.isDownloading(episodeNumber)
+              downloadProvider.isDownloading(widget.episodeNumber)
                 ? Stack(
                     alignment: Alignment.center,
                     children: [
                       CircularProgressIndicator(
-                        value: downloadProvider.getDownloadProgress(episodeNumber),
+                        value: downloadProvider.getDownloadProgress(widget.episodeNumber),
                         color: Colors.red,
                       ),
                       Positioned(
                         child: Text(
-                          '${(downloadProvider.getDownloadProgress(episodeNumber) * 100).toStringAsFixed(0)}%',
+                          '${(downloadProvider.getDownloadProgress(widget.episodeNumber) * 100).toStringAsFixed(0)}%',
                           style: const TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.bold,
@@ -210,7 +248,7 @@ class EpisodeItem extends StatelessWidget {
                 : IconButton(
                     icon: const Icon(Icons.download, color: Colors.white),
                     onPressed: () {
-                      downloadProvider.downloadEpisode(context, episodeNumber, title, dateTime, imageUrl, mp3Url);
+                      downloadProvider.downloadEpisode(context, widget.episodeNumber, widget.title, widget.dateTime, widget.imageUrl, widget.mp3Url);
                     },
                   ),
             ],
