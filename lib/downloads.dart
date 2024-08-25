@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:just_audio/just_audio.dart';
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:path_provider/path_provider.dart';
@@ -114,10 +116,7 @@ class DownloadProvider with ChangeNotifier {
     _imagePaths.remove(episodeNumber);
     _audioPaths.remove(episodeNumber);
     SharedPreferences.getInstance().then((prefs) {
-      prefs.remove('offline_ep_${episodeNumber}_title');
-      prefs.remove('offline_ep_${episodeNumber}_dateTime');
-      prefs.remove('offline_ep_${episodeNumber}_imagePath');
-      prefs.remove('offline_ep_${episodeNumber}_audioPath');
+      prefs.remove('offline_ep_$episodeNumber');
       List<String> downloads = prefs.getStringList('downloads') ?? [];
       downloads.remove(episodeNumber.toString());
       prefs.setStringList('downloads', downloads);
@@ -242,13 +241,23 @@ class DownloadProvider with ChangeNotifier {
 
   Future<void> saveEpisodeMetadata(String episodeNumber, String title, String dateTime, String imagePath, String audioPath) async {
     final prefs = await SharedPreferences.getInstance();
+
     List<String> downloads = prefs.getStringList('downloads') ?? [];
     downloads.add(episodeNumber);
     await prefs.setStringList('downloads', downloads);
-    await prefs.setString('offline_ep_${episodeNumber}_title', title);
-    await prefs.setString('offline_ep_${episodeNumber}_dateTime', dateTime);
-    await prefs.setString('offline_ep_${episodeNumber}_imagePath', imagePath);
-    await prefs.setString('offline_ep_${episodeNumber}_audioPath', audioPath);
+
+      // Create a map for the episode data
+    Map<String, String> episodeData = {
+      'title': title,
+      'dateTime': dateTime,
+      'imagePath': imagePath,
+      'audioPath': audioPath,
+    };
+
+    // Serialize the map to a JSON string
+    String episodeJson = jsonEncode(episodeData);
+    await prefs.setString('offline_ep_$episodeNumber', episodeJson);
+
   }
 
   void _showSnackBarMessage(BuildContext context, String message, MaterialColor color) {
@@ -355,6 +364,31 @@ class DownloadsEpisodeItem extends StatelessWidget {
     }
   }
 
+  Future<void> deleteEpisode(BuildContext context) async {
+    final prefs = await SharedPreferences.getInstance();
+    // Remove metadata
+    prefs.remove('offline_ep_$episodeNumber');
+
+    // Remove from downloads list
+    List<String> downloads = prefs.getStringList('downloads') ?? [];
+    downloads.remove(episodeNumber);
+    prefs.setStringList('downloads', downloads);
+    
+    // Delete files
+    await File(imagePath).delete();
+    await File(audioPath).delete();
+
+    // Remove the episode details from the DownloadProvider
+    if(context.mounted){
+      final provider = Provider.of<DownloadProvider>(context, listen: false);
+      provider.deleteDownload(int.parse(episodeNumber));
+    }
+
+    // Notify parent to update the UI
+    onDelete();
+
+  }
+
   @override
   Widget build(BuildContext context) {
     return Padding(
@@ -407,30 +441,7 @@ class DownloadsEpisodeItem extends StatelessWidget {
               IconButton(
                 icon: const Icon(Icons.delete),
                 onPressed: () async {
-                  final prefs = await SharedPreferences.getInstance();
-                  // Remove metadata
-                  prefs.remove('offline_ep_${episodeNumber}_title');
-                  prefs.remove('offline_ep_${episodeNumber}_dateTime');
-                  prefs.remove('offline_ep_${episodeNumber}_imagePath');
-                  prefs.remove('offline_ep_${episodeNumber}_audioPath');
-                  
-                  // Remove from downloads list
-                  List<String> downloads = prefs.getStringList('downloads') ?? [];
-                  downloads.remove(episodeNumber);
-                  prefs.setStringList('downloads', downloads);
-                  
-                  // Delete files
-                  await File(imagePath).delete();
-                  await File(audioPath).delete();
-
-                  // Remove the episode details from the DownloadProvider
-                  if(context.mounted){
-                    final provider = Provider.of<DownloadProvider>(context, listen: false);
-                    provider.deleteDownload(int.parse(episodeNumber));
-                  }
-
-                  // Notify parent to update the UI
-                  onDelete();
+                  await deleteEpisode(context);
                 },
               ),
             ],
@@ -460,24 +471,28 @@ class _DownloadsPageState extends State<DownloadsPage> {
     fetchDownloadedEpisodes();
   }
 
+
   Future<void> fetchDownloadedEpisodes() async {
     final prefs = await SharedPreferences.getInstance();
     List<String> downloads = prefs.getStringList('downloads') ?? [];
 
     List<Map<String, dynamic>> episodes = [];
     for (String episodeNumber in downloads) {
-      String title = prefs.getString('offline_ep_${episodeNumber}_title') ?? '';
-      String dateTime = prefs.getString('offline_ep_${episodeNumber}_dateTime') ?? '';
-      String imagePath = prefs.getString('offline_ep_${episodeNumber}_imagePath') ?? '';
-      String audioPath = prefs.getString('offline_ep_${episodeNumber}_audioPath') ?? '';
+      // Get the JSON string from SharedPreferences
+      String? episodeJson = prefs.getString('offline_ep_$episodeNumber');
 
-      episodes.add({
-        'episodeNumber': episodeNumber,
-        'title': title,
-        'dateTime': dateTime,
-        'imagePath': imagePath,
-        'audioPath': audioPath,
-      });
+      if (episodeJson != null) {
+        // Deserialize the JSON string to a map
+        Map<String, dynamic> episodeData = jsonDecode(episodeJson);
+
+        episodes.add({
+          'episodeNumber': episodeNumber,
+          'title': episodeData['title'] ?? '',
+          'dateTime': episodeData['dateTime'] ?? '',
+          'imagePath': episodeData['imagePath'] ?? '',
+          'audioPath': episodeData['audioPath'] ?? '',
+        });
+      }
     }
 
     setState(() {
