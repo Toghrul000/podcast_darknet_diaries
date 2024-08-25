@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'package:audio_video_progress_bar/audio_video_progress_bar.dart';
 import 'package:flutter/material.dart';
@@ -8,6 +9,7 @@ import 'package:podcast_darknet_diaries/image_item.dart';
 import 'package:provider/provider.dart';
 import 'package:rxdart/rxdart.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+import 'package:sliding_up_panel/sliding_up_panel.dart';
 
 class PersistentMiniPlayerWrapper extends StatelessWidget {
   final Widget child;
@@ -26,11 +28,11 @@ class PersistentMiniPlayerWrapper extends StatelessWidget {
               final hasAudioSource = audioPlayer.currentIndex != null;
               bool isStopped = !audioProvider.audioPlayer.playing && audioProvider.audioPlayer.processingState == ProcessingState.idle;
               if (hasAudioSource && !isStopped) {
-                return Positioned(
+                return const Positioned(
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  child: MiniPlayer(audioPlayer: audioPlayer),
+                  child: MiniPlayer(),
                 );
               } else {
                 return const SizedBox.shrink();
@@ -39,6 +41,41 @@ class PersistentMiniPlayerWrapper extends StatelessWidget {
           ),
         ],
       ),
+    );
+  }
+}
+
+
+class LastPlayedData {
+  final String mp3Url;
+  final String imageUrl;
+  final String title;
+  final String dateTime;
+  final int position;
+
+  LastPlayedData({
+    required this.mp3Url,
+    required this.imageUrl,
+    required this.title,
+    required this.dateTime,
+    required this.position,
+  });
+
+  Map<String, dynamic> toJson() => {
+    'mp3Url': mp3Url,
+    'imageUrl': imageUrl,
+    'title': title,
+    'dateTime': dateTime,
+    'position': position,
+  };
+
+  factory LastPlayedData.fromJson(Map<String, dynamic> json) {
+    return LastPlayedData(
+      mp3Url: json['mp3Url'],
+      imageUrl: json['imageUrl'],
+      title: json['title'],
+      dateTime: json['dateTime'],
+      position: json['position'],
     );
   }
 }
@@ -56,20 +93,19 @@ class AudioPlayerProvider with ChangeNotifier, WidgetsBindingObserver {
       _notifySafely(); // Notify listeners when the current track changes
     });
 
-    // Listen for playback events to handle stop or completion
-    // _audioPlayer.playbackEventStream.listen((event) {
-    //   if (event.processingState == ProcessingState.completed ||
-    //       event.processingState == ProcessingState.idle) {
-    //     _handleStop(); 
-    //   }
-    // });
+    _audioPlayer.positionStream.listen((position) {
+      //print("MINI ${audioPlayer.currentIndex != null} and ${!audioPlayer.playing} and ${audioPlayer.processingState == ProcessingState.idle}");
+      if (_audioPlayer.playing) {
+        _savePosition(position);
+      }
+    });
+
+    _audioPlayer.playerStateStream.listen((playerState) {
+      if (playerState.processingState != ProcessingState.idle) {
+        _savePosition(_audioPlayer.position);
+      }
+    });
   }
-
-  // void _handleStop(){
-  //   print("STOOOPPPING");
-  //   saveCurrentPosition();
-
-  // }
 
   void _notifySafely() {
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -79,13 +115,11 @@ class AudioPlayerProvider with ChangeNotifier, WidgetsBindingObserver {
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.inactive || 
-        state == AppLifecycleState.paused || 
+    if (state == AppLifecycleState.inactive ||  
         state == AppLifecycleState.resumed) {
       return;
     }
-    if (state == AppLifecycleState.resumed) return;
-    if (state == AppLifecycleState.detached) {
+    if (state == AppLifecycleState.detached || state == AppLifecycleState.paused) {
       saveCurrentPosition(); 
     }
   }
@@ -93,48 +127,85 @@ class AudioPlayerProvider with ChangeNotifier, WidgetsBindingObserver {
 
   AudioPlayer get audioPlayer => _audioPlayer;
 
+  Future<void> _savePosition(Duration position) async {
+    final prefs = await SharedPreferences.getInstance();
+    if ((prefs.getBool('save') ?? false)) {
+      final sequenceState = await _audioPlayer.sequenceStateStream.first;
+      if (sequenceState != null) {
+        final currentSource = sequenceState.currentSource;
+        if (currentSource != null) {
+          print("Duration 2 is ${position.inSeconds}");
+          final mediaItem = currentSource.tag as MediaItem;
+          final lastPlayedData = LastPlayedData(
+            mp3Url: mediaItem.extras?['mp3Url'] ?? '',
+            imageUrl: mediaItem.artUri?.toString() ?? '',
+            title: mediaItem.title,
+            dateTime: mediaItem.displaySubtitle ?? '',
+            position: position.inMilliseconds,
+          );
+          await prefs.setString('lastPlayedData', jsonEncode(lastPlayedData.toJson()));
+        }
+      }
+    }
+  }
+
+
   Future<void> saveCurrentPosition() async {
     final prefs = await SharedPreferences.getInstance();
-    if((prefs.getBool('save') ?? false)){
+    if ((prefs.getBool('save') ?? false)) {
       final sequenceState = await _audioPlayer.sequenceStateStream.first;
       if (sequenceState != null) {
         final currentSource = sequenceState.currentSource;
         if (currentSource != null) {
           final mediaItem = currentSource.tag as MediaItem;
-          await prefs.setString('lastPlayedUrl', mediaItem.extras?['mp3Url'] ?? '');
-          await prefs.setString('lastPlayedImageUrl', mediaItem.artUri?.toString() ?? '');
-          await prefs.setString('lastPlayedTitle', mediaItem.title);
-          await prefs.setString('lastPlayedDateTime', mediaItem.displaySubtitle ?? '');
-          await prefs.setInt('lastPlayedPosition', _audioPlayer.position.inMilliseconds);
+          final lastPlayedData = LastPlayedData(
+            mp3Url: mediaItem.extras?['mp3Url'] ?? '',
+            imageUrl: mediaItem.artUri?.toString() ?? '',
+            title: mediaItem.title,
+            dateTime: mediaItem.displaySubtitle ?? '',
+            position: _audioPlayer.position.inMilliseconds,
+          );
+          await prefs.setString('lastPlayedData', jsonEncode(lastPlayedData.toJson()));
         }
       }
-
     }
   }
 
   @override
   Future<void> dispose() async {
     WidgetsBinding.instance.removeObserver(this);
-    // saveCurrentPosition();
     await _audioPlayer.dispose();
-    _notifySafely();
-
     super.dispose();
   }
 }
 
-class MiniPlayer extends StatelessWidget {
-  final AudioPlayer audioPlayer;
 
-  MiniPlayer({required this.audioPlayer, super.key}) {
+class MiniPlayer extends StatefulWidget {
+  const MiniPlayer({super.key});
+
+  @override
+  State<MiniPlayer> createState() => _MiniPlayerState();
+}
+
+class _MiniPlayerState extends State<MiniPlayer> {
+  late AudioPlayer _audioPlayer;
+  final PanelController _panelController = PanelController();
+  bool _isPanelOpen = false; // State variable to track if the panel is open
+
+  @override
+  void initState() {
+    super.initState();
+    _audioPlayer =
+        Provider.of<AudioPlayerProvider>(context, listen: false).audioPlayer;
     _setSaveTrue();
+
+
   }
 
   Future<void> _setSaveFalse() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setBool('save', false);
   }
-
 
   Future<void> _setSaveTrue() async {
     SharedPreferences prefs = await SharedPreferences.getInstance();
@@ -143,92 +214,365 @@ class MiniPlayer extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    return SlidingUpPanel(
+      controller: _panelController,
+      minHeight: 100,
+      maxHeight: 280,
+      panel: _buildExpandedPanel(),
+      // collapsed: _buildMiniPlayer(),
+      collapsed: AbsorbPointer(
+        absorbing: _isPanelOpen, // Absorbs pointer events when panel is open
+        child: _buildMiniPlayer(),
+      ),
+      borderRadius: const BorderRadius.only(
+        topLeft: Radius.circular(18.0),
+        topRight: Radius.circular(18.0),
+      ),
+      onPanelSlide: (position) {
+        setState(() {
+          _isPanelOpen = position > 0.3; // Update based on slide position
+        });
+      },
+      onPanelOpened: () {
+        setState(() {
+          _isPanelOpen = true; // Set to true when panel fully opens
+        });
+      },
+      onPanelClosed: () {
+        setState(() {
+          _isPanelOpen = false; // Set to false when panel closes
+        });
+      },
+    );
+  }
+
+  Widget _buildMiniPlayer() {
     return Container(
-      color: Colors.black87,
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          StreamBuilder<SequenceState?>(
-            stream: audioPlayer.sequenceStateStream,
-            builder: (context, snapshot) {
-              final state = snapshot.data;
-              if (state?.sequence.isEmpty ?? true) {
-                return const SizedBox.shrink();
-              }
-              final currentTrack = state!.currentSource!.tag as MediaItem;
-              return ListTile(
-                leading: 
-                ImageItem(
-                  imageLink: currentTrack.artUri.toString(),
-                  height: 50,
-                  width: 50,
-                ),
-                title: Text(
+      decoration: const BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [
+              Color.fromARGB(255, 9, 1, 0),
+              Color.fromARGB(255, 52, 6, 0),
+              Color.fromARGB(255, 136, 6, 6),
+            ],
+          ),
+        ),
+      child: StreamBuilder<SequenceState?>(
+        stream: _audioPlayer.sequenceStateStream,
+        builder: (context, snapshot) {
+          final state = snapshot.data;
+          if (state?.sequence.isEmpty ?? true) {
+            return const SizedBox.shrink();
+          }
+          final currentTrack = state!.currentSource!.tag as MediaItem;
+          return ListTile(
+            leading: ImageItem(
+              imageLink: currentTrack.artUri.toString(),
+              height: 55,
+              width: 55,
+            ),
+            title: 
+            SizedBox(
+                height: 48, // Adjust based on the font size and desired padding
+                child: Text(
                   currentTrack.title,
-                  style: const TextStyle(color: Colors.white),
-                ),
-                subtitle: StreamBuilder<PositionData>(
-                  stream: Rx.combineLatest3<Duration, Duration, Duration?, PositionData>(
-                    audioPlayer.positionStream,
-                    audioPlayer.bufferedPositionStream,
-                    audioPlayer.durationStream,
-                    (position, bufferedPosition, duration) => PositionData(
-                      position,
-                      bufferedPosition,
-                      duration ?? Duration.zero,
-                    ),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 16, // Adjust the font size as needed
                   ),
-                  builder: (context, snapshot) {
-                    final positionData = snapshot.data;
-                    return ProgressBar(
-                      progress: positionData?.position ?? Duration.zero,
-                      buffered: positionData?.bufferedPosition ?? Duration.zero,
-                      total: positionData?.duration ?? Duration.zero,
-                      progressBarColor: Colors.red,
-                      thumbColor: Colors.red,
-                      timeLabelTextStyle: const TextStyle(color: Colors.white),
-                      onSeek: audioPlayer.seek,
-                    );
-                  },
+                  overflow: TextOverflow.ellipsis,
+                  maxLines: 2,
+                  textAlign: TextAlign.left, // Optional: Ensure text is left-aligned
                 ),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      icon: Icon(
-                        audioPlayer.playing ? Icons.pause : Icons.play_arrow,
-                        color: Colors.white,
-                      ),
-                      onPressed: () async {
-                        if (audioPlayer.playing) {
-                          await audioPlayer.pause();
-                        } else {
-                          await audioPlayer.play();
-                        }
-                      },
-                    ),
-                    IconButton(
-                      icon: const Icon(Icons.close, color: Colors.white),
-                      onPressed: () async {
-                        await _setSaveFalse();
-                        await audioPlayer.stop();
-                      },
-                    ),
-                  ],
+              ),
+            // Text(
+            //   currentTrack.title,
+            //   style: const TextStyle(color: Colors.white,),
+            //   overflow: TextOverflow.ellipsis,
+            //   maxLines: 2,
+            // ),
+            subtitle: StreamBuilder<PositionData>(
+              stream: Rx.combineLatest3<Duration, Duration, Duration?,
+                  PositionData>(
+                _audioPlayer.positionStream,
+                _audioPlayer.bufferedPositionStream,
+                _audioPlayer.durationStream,
+                (position, bufferedPosition, duration) => PositionData(
+                  position,
+                  bufferedPosition,
+                  duration ?? Duration.zero,
                 ),
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => AudioPlayerScreen(
-                        imageUrl: currentTrack.artUri.toString(),
-                        title: currentTrack.title,
-                        dateTime: currentTrack.displaySubtitle ?? '',
-                        mp3Url: currentTrack.extras?['mp3Url'] ?? '',
+              ),
+              builder: (context, snapshot) {
+                final positionData = snapshot.data;
+                if (positionData == null) {
+                  return const Center(
+                    child: SizedBox(
+                      width: 24,
+                      height: 24,
+                      child: CircularProgressIndicator(
+                        color: Colors.red,
+                        valueColor:
+                            AlwaysStoppedAnimation<Color>(Colors.red),
+                        strokeWidth: 3,
                       ),
                     ),
                   );
-                },
+                }
+                return ProgressBar(
+                  progress: positionData.position,
+                  buffered: positionData.bufferedPosition,
+                  total: positionData.duration,
+                  progressBarColor: Colors.red,
+                  thumbColor: Colors.red,
+                  timeLabelTextStyle: const TextStyle(color: Colors.white),
+                  onSeek: _audioPlayer.seek,
+                );
+              },
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                StreamBuilder<bool>(
+                  stream: _audioPlayer.playingStream,
+                  builder: (context, snapshot) {
+                    final isPlaying = snapshot.data ?? false;
+                    return IconButton(
+                      icon: Icon(
+                        isPlaying ? Icons.pause : Icons.play_arrow,
+                        color: Colors.white,
+                      ),
+                      onPressed: () async {
+                        if (isPlaying) {
+                          await _audioPlayer.pause();
+                        } else {
+                          await _audioPlayer.play();
+                        }
+                      },
+                    );
+                  },
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: Colors.white),
+                  onPressed: () async {
+                    await _setSaveFalse();
+                    await _audioPlayer.stop();
+                  },
+                ),
+              ],
+            ),
+            onTap: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => AudioPlayerScreen(
+                    imageUrl: currentTrack.artUri.toString(),
+                    title: currentTrack.title,
+                    dateTime: currentTrack.displaySubtitle ?? '',
+                    mp3Url: currentTrack.extras?['mp3Url'] ?? '',
+                  ),
+                ),
+              );
+            },
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildExpandedPanel() {
+    return Container(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            Color.fromARGB(255, 9, 1, 0),
+            Color.fromARGB(255, 52, 6, 0),
+            Color.fromARGB(255, 90, 16, 6),
+            Color.fromARGB(255, 136, 6, 6),
+          ],
+        ),
+      ),
+      child: Column(
+        children: [
+          const Icon(Icons.keyboard_arrow_down, color: Colors.white),
+          StreamBuilder<SequenceState?>(
+            stream: _audioPlayer.sequenceStateStream,
+            builder: (context, snapshot) {
+              final state = snapshot.data;
+              if (state?.sequence.isEmpty ?? true) {
+                return const SizedBox.shrink(); // Handle no track playing
+              }
+              final currentTrack = state!.currentSource!.tag as MediaItem;
+
+              return Column(
+                children: [
+                  // First Part: Image and Title with Subtitle wrapped with GestureDetector
+                  GestureDetector(
+                    onTap: () {
+                      Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (context) => AudioPlayerScreen(
+                            imageUrl: currentTrack.artUri.toString(),
+                            title: currentTrack.title,
+                            dateTime: currentTrack.displaySubtitle ?? '',
+                            mp3Url: currentTrack.extras?['mp3Url'] ?? '',
+                          ),
+                        ),
+                      );
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.all(14.0),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          ImageItem(
+                            imageLink: currentTrack.artUri.toString(),
+                            height: 100,
+                            width: 100,
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  currentTrack.title,
+                                  style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 20,
+                                    fontWeight: FontWeight.bold,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                  maxLines: 2,
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  currentTrack.displaySubtitle ?? '',
+                                  style: const TextStyle(
+                                    color: Colors.white70,
+                                    fontSize: 16,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  // Second Part: Progress Bar
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 4.0),
+                    child: StreamBuilder<PositionData>(
+                      stream: Rx.combineLatest3<Duration, Duration, Duration?, PositionData>(
+                        _audioPlayer.positionStream,
+                        _audioPlayer.bufferedPositionStream,
+                        _audioPlayer.durationStream,
+                        (position, bufferedPosition, duration) => PositionData(
+                          position,
+                          bufferedPosition,
+                          duration ?? Duration.zero,
+                        ),
+                      ),
+                      builder: (context, snapshot) {
+                        final positionData = snapshot.data;
+                        if (positionData == null) {
+                          return const Center(
+                            child: SizedBox(
+                              width: 24,
+                              height: 24,
+                              child: CircularProgressIndicator(
+                                color: Colors.red,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.red),
+                                strokeWidth: 3,
+                              ),
+                            ),
+                          );
+                        }
+                        return ProgressBar(
+                          progress: positionData.position,
+                          buffered: positionData.bufferedPosition,
+                          total: positionData.duration,
+                          progressBarColor: Colors.red,
+                          thumbColor: Colors.red,
+                          timeLabelTextStyle: const TextStyle(color: Colors.white),
+                          onSeek: _audioPlayer.seek,
+                        );
+                      },
+                    ),
+                  ),
+
+                  // Third Part: Playback Controls
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 0.0),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Row(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            children: [
+                              IconButton(
+                                iconSize: 40, // Double the size of the icons
+                                icon: const Icon(Icons.replay_10, color: Colors.white),
+                                onPressed: () {
+                                  final currentPosition = _audioPlayer.position;
+                                  final newPosition =
+                                      Duration(seconds: currentPosition.inSeconds - 10);
+                                  _audioPlayer.seek(newPosition);
+                                },
+                              ),
+                              StreamBuilder<bool>(
+                                stream: _audioPlayer.playingStream,
+                                builder: (context, snapshot) {
+                                  final isPlaying = snapshot.data ?? false;
+                                  return IconButton(
+                                    iconSize: 68, // Double the size of the icons
+                                    icon: Icon(
+                                      isPlaying ? Icons.pause : Icons.play_arrow,
+                                      color: Colors.white,
+                                    ),
+                                    onPressed: () async {
+                                      if (isPlaying) {
+                                        await _audioPlayer.pause();
+                                      } else {
+                                        await _audioPlayer.play();
+                                      }
+                                    },
+                                  );
+                                },
+                              ),
+                              IconButton(
+                                iconSize: 40, // Double the size of the icons
+                                icon: const Icon(Icons.forward_10, color: Colors.white),
+                                onPressed: () {
+                                  final currentPosition = _audioPlayer.position;
+                                  final newPosition =
+                                      Duration(seconds: currentPosition.inSeconds + 10);
+                                  _audioPlayer.seek(newPosition);
+                                },
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          iconSize: 48, // Double the size of the icons
+                          icon: const Icon(Icons.close, color: Colors.white),
+                          onPressed: () async {
+                            await _setSaveFalse();
+                            await _audioPlayer.stop();
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               );
             },
           ),
@@ -236,6 +580,7 @@ class MiniPlayer extends StatelessWidget {
       ),
     );
   }
+
 }
 
 

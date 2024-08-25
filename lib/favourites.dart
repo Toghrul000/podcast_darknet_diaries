@@ -1,6 +1,5 @@
 import 'dart:convert';
 import 'package:podcast_darknet_diaries/episode.dart';
-import 'package:podcast_darknet_diaries/main.dart';
 import 'package:provider/provider.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter/material.dart';

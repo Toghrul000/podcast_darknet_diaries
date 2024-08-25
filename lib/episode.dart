@@ -11,6 +11,42 @@ import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 
+class Episode {
+  final int episodeNumber;
+  final String imageUrl;
+  final String title;
+  final String dateTime;
+  final String content;
+  final String mp3Url;
+  Episode({required this.episodeNumber,required this.imageUrl, required this.title, required this.dateTime, required this.content, required this.mp3Url});
+
+  // Method to convert Episode to JSON
+  Map<String, dynamic> toJson() {
+    return {
+      'episodeNumber': episodeNumber,
+      'imageUrl': imageUrl,
+      'title': title,
+      'dateTime': dateTime,
+      'content': content,
+      'mp3Url': mp3Url,
+    };
+  }
+
+  // Method to create Episode from JSON
+  factory Episode.fromJson(Map<String, dynamic> json) {
+    return Episode(
+      episodeNumber: json['episodeNumber'],
+      imageUrl: json['imageUrl'],
+      title: json['title'],
+      dateTime: json['dateTime'],
+      content: json['content'],
+      mp3Url: json['mp3Url'],
+    );
+  }
+
+}
+
+
 class EpisodeItem extends StatefulWidget {
   final String imageUrl;
   final String title;
@@ -91,12 +127,8 @@ class _EpisodeItemState extends State<EpisodeItem> {
         setState(() {
           isLoading = false;
         });
-
         await audioPlayer.play();
       } catch (e) {
-        setState(() {
-          isLoading = false;
-        });
         if (context.mounted){
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -285,6 +317,15 @@ class EpisodeScreen extends StatefulWidget {
 
 class _EpisodeScreenState extends State<EpisodeScreen> {
   bool isFavourite = false;
+  bool isLoading = false;
+
+  void _onPlayPressed(BuildContext context) async {
+    setState(() {
+      isLoading = true;
+    });
+    await _playAudio(context);
+  }
+
 
   @override
   void initState() {
@@ -299,7 +340,7 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
     });
   }
 
-  void _playAudio(BuildContext context) async {
+  Future<void> _playAudio(BuildContext context) async {
       if(context.mounted){
         final audioPlayerProvider = Provider.of<AudioPlayerProvider>(context, listen: false);
         final audioPlayer = audioPlayerProvider.audioPlayer;
@@ -335,6 +376,9 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
             );
           }
           await audioPlayer.setAudioSource(audioSource);
+          setState(() {
+            isLoading = false;
+          });
           await audioPlayer.play();
         } catch (e) {
           if (context.mounted){
@@ -399,9 +443,24 @@ class _EpisodeScreenState extends State<EpisodeScreen> {
                     ),
                     onPressed: toggleFavourite,
                   ),
+                  isLoading 
+                  ? 
+                  const SizedBox(
+                    width: 44,
+                    height: 44,
+                    child: CircularProgressIndicator(
+                      color: Colors.red,
+                      strokeWidth: 3,
+                    ),
+                  )
+                  :
                   IconButton(
-                    icon: const Icon(Icons.play_arrow_rounded, size: 64, color: Colors.white), 
-                    onPressed: () => _playAudio(context),
+                    icon: const Icon(
+                      Icons.play_arrow_rounded,
+                      color: Colors.white,
+                      size: 64,
+                    ),
+                    onPressed: () => _onPlayPressed(context),
                   ),
                   downloadProvider.isDownloading(widget.episodeNumber)
                     ? 

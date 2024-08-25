@@ -40,41 +40,6 @@ Future<void> main() async {
 }
 
 
-class Episode {
-  final int episodeNumber;
-  final String imageUrl;
-  final String title;
-  final String dateTime;
-  final String content;
-  final String mp3Url;
-  Episode({required this.episodeNumber,required this.imageUrl, required this.title, required this.dateTime, required this.content, required this.mp3Url});
-
-  // Method to convert Episode to JSON
-  Map<String, dynamic> toJson() {
-    return {
-      'episodeNumber': episodeNumber,
-      'imageUrl': imageUrl,
-      'title': title,
-      'dateTime': dateTime,
-      'content': content,
-      'mp3Url': mp3Url,
-    };
-  }
-
-  // Method to create Episode from JSON
-  factory Episode.fromJson(Map<String, dynamic> json) {
-    return Episode(
-      episodeNumber: json['episodeNumber'],
-      imageUrl: json['imageUrl'],
-      title: json['title'],
-      dateTime: json['dateTime'],
-      content: json['content'],
-      mp3Url: json['mp3Url'],
-    );
-  }
-
-}
-
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
@@ -358,13 +323,15 @@ class _HomeState extends State<Home> {
   void initState() {
     super.initState();
     _episodeFuture = _initializeEpisodes();
-    _loadLastPlayed();
+    _loadLastSaved();
 
-    context.read<AudioPlayerProvider>().audioPlayer.playingStream.listen((playing) {
-      setState(() {
-        // This will trigger the UI update when the playing state changes
+    if(mounted){
+        context.read<AudioPlayerProvider>().audioPlayer.playingStream.listen((playing) {
+        setState(() {
+          // This will trigger the UI update when the playing state changes
+        });
       });
-    });
+    }
   }
 
 
@@ -383,61 +350,51 @@ class _HomeState extends State<Home> {
       _episodeFuture = _hardReFetch();
     });
   }
-  
 
-  Future<void> _loadLastPlayed() async{
-    SharedPreferences prefs = await SharedPreferences.getInstance();
-    print("here 1");
-    if((prefs.getBool('save') ?? false)) {
-      print("here 2");
-      // Load the last played audio source and position
-      final prefs = await SharedPreferences.getInstance();
-      final lastPlayedUrl = prefs.getString('lastPlayedUrl');
-      final lastPlayedImageUrl = prefs.getString('lastPlayedImageUrl');
-      final lastPlayedTitle = prefs.getString('lastPlayedTitle');
-      final lastPlayedDateTime = prefs.getString('lastPlayedDateTime');
-      final lastPlayedPosition = prefs.getInt('lastPlayedPosition') ?? 0;
-
-      if (lastPlayedUrl != null && lastPlayedImageUrl != null && lastPlayedTitle != null) {
-        print("here 3");
-        if(mounted){
+  void _loadLastSaved() async {
+    final prefs = await SharedPreferences.getInstance();
+    if ((prefs.getBool('save') ?? false)) {
+      final lastPlayedDataString = prefs.getString('lastPlayedData');
+      if (lastPlayedDataString != null) {
+        final lastPlayedData = LastPlayedData.fromJson(jsonDecode(lastPlayedDataString));
+        if (mounted) {
           final audioPlayerProvider = Provider.of<AudioPlayerProvider>(context, listen: false);
           final audioPlayer = audioPlayerProvider.audioPlayer;
           try {
             final UriAudioSource audioSource;
-            if (File(lastPlayedUrl).existsSync() && File(lastPlayedImageUrl).existsSync()) {
+            if (File(lastPlayedData.mp3Url).existsSync() && File(lastPlayedData.imageUrl).existsSync()) {
               audioSource = AudioSource.uri(
-                Uri.file(lastPlayedUrl),
+                Uri.file(lastPlayedData.mp3Url),
                 tag: MediaItem(
-                  id: '${extractEpisodeNumber(lastPlayedTitle)}',
-                  title: lastPlayedTitle,
-                  artUri: Uri.file(lastPlayedImageUrl),
-                  displayTitle: lastPlayedTitle,
-                  displaySubtitle: lastPlayedDateTime,
+                  id: '${extractEpisodeNumber(lastPlayedData.title)}',
+                  title: lastPlayedData.title,
+                  artUri: Uri.file(lastPlayedData.imageUrl),
+                  displayTitle: lastPlayedData.title,
+                  displaySubtitle: lastPlayedData.dateTime,
                   extras: {
-                    'mp3Url': lastPlayedUrl,
+                    'mp3Url': lastPlayedData.mp3Url,
                   },
                 ),
               );
             } else {
               audioSource = AudioSource.uri(
-                Uri.parse(lastPlayedUrl),
+                Uri.parse(lastPlayedData.mp3Url),
                 tag: MediaItem(
-                  id: '${extractEpisodeNumber(lastPlayedTitle)}',
-                  title: lastPlayedTitle,
-                  artUri: Uri.parse(lastPlayedImageUrl),
-                  displayTitle: lastPlayedTitle,
-                  displaySubtitle: lastPlayedDateTime,
+                  id: '${extractEpisodeNumber(lastPlayedData.title)}',
+                  title: lastPlayedData.title,
+                  artUri: Uri.parse(lastPlayedData.imageUrl),
+                  displayTitle: lastPlayedData.title,
+                  displaySubtitle: lastPlayedData.dateTime,
                   extras: {
-                    'mp3Url': lastPlayedUrl,
-                  },           
+                    'mp3Url': lastPlayedData.mp3Url,
+                  },
                 ),
               );
             }
             await audioPlayer.setAudioSource(audioSource);
-            await audioPlayer.seek(Duration(milliseconds: lastPlayedPosition));
+            await audioPlayer.seek(Duration(milliseconds: lastPlayedData.position));
           } catch (e) {
-            if (mounted){
+            if (mounted) {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text('Something went wrong: $e'),
@@ -451,11 +408,86 @@ class _HomeState extends State<Home> {
               );
             }
           }
-
         }
       }
     }
   }
+
+  void _loadLastPlayed() async {
+    final prefs = await SharedPreferences.getInstance();
+    final lastPlayedDataString = prefs.getString('lastPlayedData');
+    if (lastPlayedDataString != null) {
+      final lastPlayedData = LastPlayedData.fromJson(jsonDecode(lastPlayedDataString));
+      if (mounted) {
+        final audioPlayerProvider = Provider.of<AudioPlayerProvider>(context, listen: false);
+        final audioPlayer = audioPlayerProvider.audioPlayer;
+        try {
+          final UriAudioSource audioSource;
+          if (File(lastPlayedData.mp3Url).existsSync() && File(lastPlayedData.imageUrl).existsSync()) {
+            audioSource = AudioSource.uri(
+              Uri.file(lastPlayedData.mp3Url),
+              tag: MediaItem(
+                id: '${extractEpisodeNumber(lastPlayedData.title)}',
+                title: lastPlayedData.title,
+                artUri: Uri.file(lastPlayedData.imageUrl),
+                displayTitle: lastPlayedData.title,
+                displaySubtitle: lastPlayedData.dateTime,
+                extras: {
+                  'mp3Url': lastPlayedData.mp3Url,
+                },
+              ),
+            );
+          } else {
+            audioSource = AudioSource.uri(
+              Uri.parse(lastPlayedData.mp3Url),
+              tag: MediaItem(
+                id: '${extractEpisodeNumber(lastPlayedData.title)}',
+                title: lastPlayedData.title,
+                artUri: Uri.parse(lastPlayedData.imageUrl),
+                displayTitle: lastPlayedData.title,
+                displaySubtitle: lastPlayedData.dateTime,
+                extras: {
+                  'mp3Url': lastPlayedData.mp3Url,
+                },
+              ),
+            );
+          }
+          await audioPlayer.setAudioSource(audioSource);
+          await audioPlayer.seek(Duration(milliseconds: lastPlayedData.position));
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text('Something went wrong: $e'),
+                duration: const Duration(seconds: 5),
+                backgroundColor: Colors.red,
+                behavior: SnackBarBehavior.floating,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10.0),
+                ),
+              ),
+            );
+          }
+        }
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('No Saved Episode', style: TextStyle(fontWeight: FontWeight.bold),),
+            duration: const Duration(seconds: 4),
+            backgroundColor: Colors.red,
+            behavior: SnackBarBehavior.floating,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(10.0),
+            ),
+          ),
+        );
+      }
+
+    }
+  }
+
 
   Future<List<Episode>> _hardReFetch() async {
     try {
@@ -695,6 +727,19 @@ class _HomeState extends State<Home> {
                 ),
               ),
               ListTile(
+                leading: const Icon(Icons.play_circle, color: Colors.white), 
+                title: const Text(
+                  'Load last saved',
+                  style: TextStyle(color: Colors.white), 
+                ),
+                onTap: () {
+                  Navigator.pop(context);
+                  setState(() {
+                    _loadLastPlayed();
+                  });  
+                },
+              ),
+              ListTile(
                 leading: const Icon(Icons.refresh, color: Colors.white), 
                 title: const Text(
                   'Hard Re-Fetch episodes',
@@ -722,8 +767,7 @@ class _HomeState extends State<Home> {
           ),
         ),
       ),
-      body: 
-      Stack(
+      body: Stack(
         children: [
           FutureBuilder<List<Episode>>(
             future: _episodeFuture,
@@ -815,11 +859,11 @@ class _HomeState extends State<Home> {
               final hasAudioSource = audioPlayer.currentIndex != null;
               bool isStopped = !audioProvider.audioPlayer.playing && audioProvider.audioPlayer.processingState == ProcessingState.idle;
               if (hasAudioSource && !isStopped) {
-                return Positioned(
+                return const Positioned(
                   bottom: 0,
                   left: 0,
                   right: 0,
-                  child: MiniPlayer(audioPlayer: audioPlayer),
+                  child: MiniPlayer(),
                 );
               } else {
                 return const SizedBox.shrink();
