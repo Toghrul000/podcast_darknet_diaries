@@ -265,7 +265,7 @@ class DownloadProvider with ChangeNotifier {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(message, style: const TextStyle(fontWeight: FontWeight.bold),),
-        duration: const Duration(seconds: 5),
+        duration: const Duration(seconds: 4),
         backgroundColor: color,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(
@@ -365,9 +365,32 @@ class DownloadsEpisodeItem extends StatelessWidget {
   }
 
   Future<void> deleteEpisode(BuildContext context) async {
+
     final prefs = await SharedPreferences.getInstance();
+    if(context.mounted){
+      final provider = Provider.of<AudioPlayerProvider>(context, listen: false);
+      provider.handleOfflineEpisodeDeletion(title, imagePath, audioPath);
+    }
+
     // Remove metadata
     prefs.remove('offline_ep_$episodeNumber');
+    final lastPlayedDataString = prefs.getString('lastPlayedData');
+    if (lastPlayedDataString != null) {
+      final lastPlayedData = LastPlayedData.fromJson(jsonDecode(lastPlayedDataString));
+      var lastPlayedImageUrl = lastPlayedData.imageUrl;
+      var lastPlayedMp3Url = lastPlayedData.mp3Url;
+      if (lastPlayedImageUrl.startsWith('file://')) {
+        lastPlayedImageUrl = lastPlayedImageUrl.replaceFirst('file://', '');
+      }
+      if (lastPlayedMp3Url.startsWith('file://')) {
+        lastPlayedMp3Url = lastPlayedMp3Url.replaceFirst('file://', '');
+      }
+      if (lastPlayedData.title == title &&
+          lastPlayedImageUrl == imagePath &&
+          lastPlayedMp3Url == audioPath) {
+        await prefs.remove('lastPlayedData');
+      }
+    }
 
     // Remove from downloads list
     List<String> downloads = prefs.getStringList('downloads') ?? [];

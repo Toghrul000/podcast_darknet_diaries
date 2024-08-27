@@ -111,7 +111,38 @@ class AudioPlayerProvider with ChangeNotifier, WidgetsBindingObserver {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       notifyListeners(); // Notify listeners after the frame is rendered
     });
+  }  
+  
+  
+  Future<void> handleOfflineEpisodeDeletion(String title, String imagePath, String audioPath) async {
+    final sequenceState = await _audioPlayer.sequenceStateStream.first;
+    if (sequenceState != null) {
+      final currentSource = sequenceState.currentSource;
+      if (currentSource != null) {
+        final mediaItem = currentSource.tag as MediaItem;
+        String currentMp3Url = mediaItem.extras?['mp3Url'].toString() ?? '';
+        final currentTitle = mediaItem.title;
+        if(!currentMp3Url.startsWith('http') && title == currentTitle){
+          var currentImageUrl = mediaItem.artUri?.toString() ?? '';
+          if (currentImageUrl.startsWith('file://')) {
+            currentImageUrl = currentImageUrl.replaceFirst('file://', '');
+          }
+          if (currentMp3Url.startsWith('file://')) {
+            currentMp3Url = currentMp3Url.replaceFirst('file://', '');
+          }
+          if(currentImageUrl == imagePath && currentMp3Url == audioPath){
+            SharedPreferences prefs = await SharedPreferences.getInstance();
+            await prefs.setBool('save', false);
+            await _audioPlayer.stop();
+            notifyListeners(); // Notify listeners to update UI (like MiniPlayer)
+          }
+        }
+      }
+    }
+    
   }
+
+
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
@@ -134,7 +165,6 @@ class AudioPlayerProvider with ChangeNotifier, WidgetsBindingObserver {
       if (sequenceState != null) {
         final currentSource = sequenceState.currentSource;
         if (currentSource != null) {
-          print("Duration 2 is ${position.inSeconds}");
           final mediaItem = currentSource.tag as MediaItem;
           final lastPlayedData = LastPlayedData(
             mp3Url: mediaItem.extras?['mp3Url'] ?? '',
@@ -287,12 +317,6 @@ class _MiniPlayerState extends State<MiniPlayer> {
                   textAlign: TextAlign.left, // Optional: Ensure text is left-aligned
                 ),
               ),
-            // Text(
-            //   currentTrack.title,
-            //   style: const TextStyle(color: Colors.white,),
-            //   overflow: TextOverflow.ellipsis,
-            //   maxLines: 2,
-            // ),
             subtitle: StreamBuilder<PositionData>(
               stream: Rx.combineLatest3<Duration, Duration, Duration?,
                   PositionData>(
@@ -310,8 +334,8 @@ class _MiniPlayerState extends State<MiniPlayer> {
                 if (positionData == null) {
                   return const Center(
                     child: SizedBox(
-                      width: 24,
-                      height: 24,
+                      width: 20,
+                      height: 20,
                       child: CircularProgressIndicator(
                         color: Colors.red,
                         valueColor:

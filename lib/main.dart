@@ -318,6 +318,7 @@ class _HomeState extends State<Home> {
   late List<Episode> episodes;
   bool _isNewestFirst = true;
   double _progress = 0.0;
+  bool isLoadingLastPlayed = false;
 
   @override
   void initState() {
@@ -418,6 +419,9 @@ class _HomeState extends State<Home> {
     final lastPlayedDataString = prefs.getString('lastPlayedData');
     if (lastPlayedDataString != null) {
       final lastPlayedData = LastPlayedData.fromJson(jsonDecode(lastPlayedDataString));
+      setState(() {
+        isLoadingLastPlayed = true;
+      });
       if (mounted) {
         final audioPlayerProvider = Provider.of<AudioPlayerProvider>(context, listen: false);
         final audioPlayer = audioPlayerProvider.audioPlayer;
@@ -453,7 +457,11 @@ class _HomeState extends State<Home> {
             );
           }
           await audioPlayer.setAudioSource(audioSource);
+          setState(() {
+            isLoadingLastPlayed = false;
+          });
           await audioPlayer.seek(Duration(milliseconds: lastPlayedData.position));
+          await audioPlayer.play();
         } catch (e) {
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
@@ -728,15 +736,32 @@ class _HomeState extends State<Home> {
               ),
               ListTile(
                 leading: const Icon(Icons.play_circle, color: Colors.white), 
-                title: const Text(
-                  'Load last saved',
-                  style: TextStyle(color: Colors.white), 
+                title: Row(
+                  children: [
+                    const Text(
+                      'Load Last Played',
+                      style: TextStyle(color: Colors.white), 
+                    ),
+                    if (isLoadingLastPlayed) // Show the indicator if isLoadingLastPlayed is true
+                      const SizedBox(
+                        width: 8, // Space between text and indicator
+                      ),
+                    if (isLoadingLastPlayed)
+                      const SizedBox(
+                        height: 16,
+                        width: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2.0,
+                          color: Colors.red,
+                        ),
+                      ),
+                  ],
                 ),
                 onTap: () {
-                  Navigator.pop(context);
                   setState(() {
                     _loadLastPlayed();
-                  });  
+                  });
+                  Navigator.pop(context);
                 },
               ),
               ListTile(
