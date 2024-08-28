@@ -319,6 +319,7 @@ class _HomeState extends State<Home> {
   bool _isNewestFirst = true;
   double _progress = 0.0;
   bool isLoadingLastPlayed = false;
+  bool _isFetchingNewEpisodes = false;
 
   @override
   void initState() {
@@ -503,10 +504,10 @@ class _HomeState extends State<Home> {
       int? latestEpisode = await lastEpisodeNumber();
 
       if (latestEpisode != null) {
-        // Clear all existing cached episodes
-        String? favouritesJson = prefs.getString('favourites');
-        
-        await prefs.clear();
+        setState(() {
+          _isFetchingNewEpisodes = true; 
+          _progress = 0.0;
+        });
 
         for (int i = latestEpisode; i > 0; i--) {
           String episodeUrl = 'https://darknetdiaries.com/episode/$i/';
@@ -526,27 +527,19 @@ class _HomeState extends State<Home> {
               content: content,
               mp3Url: mp3Url,
             );
-
             await _cacheEpisode(i, episode);
-          
             setState(() {
               _progress = (latestEpisode - i + 1) / latestEpisode;
             });
           }
-
         }
+        setState(() {
+          _isFetchingNewEpisodes = false; 
+        });
         await prefs.setInt('lastEpisode', latestEpisode);
-
-        // Restore the favourites list after re-fetching
-        if (favouritesJson != null) {
-          await prefs.setString('favourites', favouritesJson);
-        }
-
-        // List<Episode> episodes = await _getCachedEpisodes();
         episodes = await _getCachedEpisodes();
         return _isNewestFirst ? episodes.reversed.toList() : episodes;
       }
-
       return [];
     } catch (e) {
       setState(() {
@@ -564,6 +557,10 @@ class _HomeState extends State<Home> {
 
       if (latestEpisode != null) {
         if (lastStoredEpisode == null || lastStoredEpisode < latestEpisode) {
+          setState(() {
+            _isFetchingNewEpisodes = true; 
+            _progress = 0.0;
+          });
           for (int i = latestEpisode; i > (lastStoredEpisode ?? 0); i--) {
             String episodeUrl = 'https://darknetdiaries.com/episode/$i/';
             html.Document? document = await fetchEpisodeDetails(episodeUrl);
@@ -589,8 +586,15 @@ class _HomeState extends State<Home> {
               });
             }
           }
+          setState(() {
+            _isFetchingNewEpisodes = false; 
+          });
           await prefs.setInt('lastEpisode', latestEpisode);
-        } 
+        } else {
+          setState(() {
+            _isFetchingNewEpisodes = false; 
+          });
+        }
         episodes = await _getCachedEpisodes();
         return _isNewestFirst ? episodes.reversed.toList() : episodes;
       }
@@ -639,7 +643,7 @@ class _HomeState extends State<Home> {
         ),
         backgroundColor: const Color.fromARGB(255, 7, 0, 0),
         centerTitle: true,
-        iconTheme: const IconThemeData(color: Colors.grey), // Set drawer icon color to gray
+        iconTheme: const IconThemeData(color: Colors.grey), 
         actions: [
           IconButton(
             icon: const Icon(Icons.refresh, color: Colors.grey),
@@ -742,9 +746,9 @@ class _HomeState extends State<Home> {
                       'Load Last Played',
                       style: TextStyle(color: Colors.white), 
                     ),
-                    if (isLoadingLastPlayed) // Show the indicator if isLoadingLastPlayed is true
+                    if (isLoadingLastPlayed) 
                       const SizedBox(
-                        width: 8, // Space between text and indicator
+                        width: 8, 
                       ),
                     if (isLoadingLastPlayed)
                       const SizedBox(
@@ -810,7 +814,9 @@ class _HomeState extends State<Home> {
                           ),
                           Positioned(
                             child: Text(
-                              '${(_progress * 100).toStringAsFixed(0)}%',
+                              _isFetchingNewEpisodes 
+                              ? '${(_progress * 100).toStringAsFixed(0)}%' 
+                              : '',
                               style: const TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.bold,
@@ -933,6 +939,7 @@ class AboutPage extends StatelessWidget {
         padding: const EdgeInsets.all(16.0),
         child: Center(
           child: Markdown(
+            selectable: true,
             data: '''
 # Welcome to Darknet Diaries fanmade podcast app!
 
