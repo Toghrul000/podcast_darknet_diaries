@@ -851,27 +851,34 @@ class _HomeState extends State<Home> {
                 List<Episode> episodes = snapshot.data!;
                 return Consumer<FavouritesProvider>(
                   builder: (context, favouritesProvider, child) {
-                    return ListView.builder(
-                      itemCount: episodes.length,
-                      itemBuilder: (context, index) {
-                        Episode episode = episodes[index];
-                        int episodeNumber = episode.episodeNumber;
-                        bool isFavourite = favouritesProvider.favourites.contains(episodeNumber);
-
-                        return EpisodeItem(
-                          episodeNumber: episodeNumber,
-                          imageUrl: episode.imageUrl,
-                          title: episode.title,
-                          dateTime: episode.dateTime,
-                          content: episode.content,
-                          mp3Url: episode.mp3Url,
-                          isFavourite: isFavourite,
-                          onFavouriteToggle: () {
-                            favouritesProvider.toggleFavourite(episodeNumber);
-                          },
-                          homeContext: context,
-                        );
+                    return RefreshIndicator(
+                      onRefresh: () async {
+                        reFetch();
                       },
+                      color: Colors.red, // The color of the refresh indicator
+                      backgroundColor: const Color.fromARGB(255, 7, 0, 0), // Background color of the refresh indicator
+                      child: ListView.builder(
+                        itemCount: episodes.length,
+                        itemBuilder: (context, index) {
+                          Episode episode = episodes[index];
+                          int episodeNumber = episode.episodeNumber;
+                          bool isFavourite = favouritesProvider.favourites.contains(episodeNumber);
+
+                          return EpisodeItem(
+                            episodeNumber: episodeNumber,
+                            imageUrl: episode.imageUrl,
+                            title: episode.title,
+                            dateTime: episode.dateTime,
+                            content: episode.content,
+                            mp3Url: episode.mp3Url,
+                            isFavourite: isFavourite,
+                            onFavouriteToggle: () {
+                              favouritesProvider.toggleFavourite(episodeNumber);
+                            },
+                            homeContext: context,
+                          );
+                        },
+                      ),
                     );
                   },
                 );
