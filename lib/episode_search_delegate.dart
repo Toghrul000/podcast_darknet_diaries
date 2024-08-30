@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:podcast_darknet_diaries/audio_player.dart';
 import 'package:podcast_darknet_diaries/episode.dart';
 
 class EpisodeSearchDelegate extends SearchDelegate<Episode?> {
@@ -74,19 +75,21 @@ class EpisodeSearchDelegate extends SearchDelegate<Episode?> {
           return GestureDetector(
             onTap: () {
               Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => EpisodeScreen(
-                    episodeNumber: episode.episodeNumber,
-                    imageUrl: episode.imageUrl,
-                    title: episode.title,
-                    dateTime: episode.dateTime,
-                    content: episode.content,
-                    mp3Url: episode.mp3Url,
-                    homeContext: homeContext,
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => PersistentMiniPlayerWrapper(
+                      child: EpisodeScreen(
+                        episodeNumber: episode.episodeNumber,
+                        imageUrl: episode.imageUrl,
+                        title: episode.title,
+                        dateTime: episode.dateTime,
+                        content: episode.content,
+                        mp3Url: episode.mp3Url,
+                        homeContext: homeContext,
+                    ),
+                    )
                   ),
-                ),
-              );
+                );
             },
             child: ListTile(
               leading: CachedNetworkImage(
@@ -124,19 +127,21 @@ class EpisodeSearchDelegate extends SearchDelegate<Episode?> {
           return GestureDetector(
             onTap: () {
               Navigator.push(
-                context,
-                MaterialPageRoute(
-                  builder: (context) => EpisodeScreen(
-                    episodeNumber: episode.episodeNumber,
-                    imageUrl: episode.imageUrl,
-                    title: episode.title,
-                    dateTime: episode.dateTime,
-                    content: episode.content,
-                    mp3Url: episode.mp3Url,
-                    homeContext: homeContext,
+                  context,
+                  MaterialPageRoute(
+                    builder: (context) => PersistentMiniPlayerWrapper(
+                      child: EpisodeScreen(
+                        episodeNumber: episode.episodeNumber,
+                        imageUrl: episode.imageUrl,
+                        title: episode.title,
+                        dateTime: episode.dateTime,
+                        content: episode.content,
+                        mp3Url: episode.mp3Url,
+                        homeContext: homeContext,
+                    ),
+                    )
                   ),
-                ),
-              );
+                );
             },
             child: ListTile(
               leading: CachedNetworkImage(
