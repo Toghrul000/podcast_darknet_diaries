@@ -1,6 +1,6 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android" 
     xmlns:tools="http://schemas.android.com/tools" 
-    package="com.example.podcast_darknet_diaries" 
+    package="com.lurgoth.podcast_darknet_diaries">
     tools:ignore="Instantiatable">
     
     <uses-permission android:name="android.permission.INTERNET" />

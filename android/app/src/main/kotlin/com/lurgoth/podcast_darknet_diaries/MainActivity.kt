@@ -1,4 +1,4 @@
-package com.example.podcast_darknet_diaries
+package com.lurgoth.podcast_darknet_diaries
 
 import io.flutter.embedding.android.FlutterActivity
 
