@@ -142,8 +142,6 @@ class AudioPlayerProvider with ChangeNotifier, WidgetsBindingObserver {
     
   }
 
-
-
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.inactive ||  
@@ -305,16 +303,16 @@ class _MiniPlayerState extends State<MiniPlayer> {
             ),
             title: 
             SizedBox(
-                height: 48, // Adjust based on the font size and desired padding
+                height: 48, 
                 child: Text(
                   currentTrack.title,
                   style: const TextStyle(
                     color: Colors.white,
-                    fontSize: 16, // Adjust the font size as needed
+                    fontSize: 16, 
                   ),
                   overflow: TextOverflow.ellipsis,
                   maxLines: 2,
-                  textAlign: TextAlign.left, // Optional: Ensure text is left-aligned
+                  textAlign: TextAlign.left,
                 ),
               ),
             subtitle: StreamBuilder<PositionData>(
@@ -543,7 +541,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                             mainAxisAlignment: MainAxisAlignment.center,
                             children: [
                               IconButton(
-                                iconSize: 40, // Double the size of the icons
+                                iconSize: 40, 
                                 icon: const Icon(Icons.replay_10, color: Colors.white),
                                 onPressed: () {
                                   final currentPosition = _audioPlayer.position;
@@ -557,7 +555,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                                 builder: (context, snapshot) {
                                   final isPlaying = snapshot.data ?? false;
                                   return IconButton(
-                                    iconSize: 68, // Double the size of the icons
+                                    iconSize: 68, 
                                     icon: Icon(
                                       isPlaying ? Icons.pause : Icons.play_arrow,
                                       color: Colors.white,
@@ -573,7 +571,7 @@ class _MiniPlayerState extends State<MiniPlayer> {
                                 },
                               ),
                               IconButton(
-                                iconSize: 40, // Double the size of the icons
+                                iconSize: 40, 
                                 icon: const Icon(Icons.forward_10, color: Colors.white),
                                 onPressed: () {
                                   final currentPosition = _audioPlayer.position;

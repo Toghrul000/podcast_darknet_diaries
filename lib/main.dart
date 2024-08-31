@@ -771,12 +771,12 @@ class _HomeState extends State<Home> {
               ListTile(
                 leading: const Icon(Icons.refresh, color: Colors.white), 
                 title: const Text(
-                  'Hard Re-Fetch episodes',
+                  'Hard Re-Fetch Episodes',
                   style: TextStyle(color: Colors.white), 
                 ),
                 onTap: () {
-                  Navigator.pop(context); // Close the drawer before starting fetch
-                  _handleHardReFetch(); // Handle the re-fetching
+                  Navigator.pop(context); 
+                  _handleHardReFetch(); 
                 },
               ),
               ListTile(

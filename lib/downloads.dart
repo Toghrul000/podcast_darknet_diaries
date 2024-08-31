@@ -501,7 +501,6 @@ class _DownloadsPageState extends State<DownloadsPage> {
 
     List<Map<String, dynamic>> episodes = [];
     for (String episodeNumber in downloads) {
-      // Get the JSON string from SharedPreferences
       String? episodeJson = prefs.getString('offline_ep_$episodeNumber');
 
       if (episodeJson != null) {
